@@ -17,83 +17,58 @@
 <script>
 (() => {
   const { useState, useEffect, useMemo } = React;
-  const GITHUB_OWNER = "efittes";
-  const GITHUB_REPO = "mb-speakers";
-  const GITHUB_BRANCH = "main";
-  const GITHUB_TOKEN = "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";
-  const GITHUB_DATA_PATH = "data";
-  function ghKeyToPath(key) {
-    return `${GITHUB_DATA_PATH}/${key.replace(/:/g, "-")}.json`;
-  }
-  function utf8ToBase64(str) {
-    return btoa(unescape(encodeURIComponent(str)));
-  }
-  async function ghStorageGetRaw(key) {
-    const path = ghKeyToPath(key);
-    const url = `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/${path}?_=${Date.now()}`;
-    const res = await fetch(url, { cache: "no-store" });
-    if (res.status === 404) return null;
-    if (!res.ok) throw new Error(`GitHub read failed for "${key}" (status ${res.status}).`);
-    return await res.text();
-  }
-  async function ghGetFileSha(path) {
-    const res = await fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}?ref=${GITHUB_BRANCH}`, {
-      headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, Accept: "application/vnd.github+json" }
-    });
-    if (res.status === 404) return null;
-    if (!res.ok) throw new Error(`Couldn't check the existing file for "${path}" (status ${res.status}).`);
-    const data = await res.json();
-    return data.sha;
-  }
-  async function ghStorageSetRaw(key, valueStr, attempt = 0) {
-    const path = ghKeyToPath(key);
-    const sha = await ghGetFileSha(path);
-    const res = await fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`, {
-      method: "PUT",
+  const SUPABASE_URL = "https://yhaslgnecymqttrqxjqq.supabase.co";
+  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InloYXNsZ25lY3ltcXR0cnF4anFxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNjY1NjYsImV4cCI6MjEwMzk0MjU2Nn0.lBONeGG1jPpcxGbHUiCJW6u5-YG78BFZLzKAIUJZqn0";
+  const SUPABASE_TABLE = "roster_storage";
+  async function sbStorageGetRaw(key) {
+    const url = `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}?key=eq.${encodeURIComponent(key)}&select=value`;
+    const res = await fetch(url, {
       headers: {
-        Authorization: `Bearer ${GITHUB_TOKEN}`,
-        Accept: "application/vnd.github+json",
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        message: `Update ${key} \u2014 ${(/* @__PURE__ */ new Date()).toISOString()}`,
-        content: utf8ToBase64(valueStr),
-        branch: GITHUB_BRANCH,
-        ...sha ? { sha } : {}
-      })
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`
+      }
     });
-    if (res.status === 409 && attempt < 2) {
-      return ghStorageSetRaw(key, valueStr, attempt + 1);
-    }
+    if (!res.ok) throw new Error(`Supabase read failed for "${key}" (status ${res.status}).`);
+    const rows = await res.json();
+    if (!rows || rows.length === 0) return null;
+    return rows[0].value;
+  }
+  async function sbStorageSetRaw(key, valueStr) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}`, {
+      method: "POST",
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        "Content-Type": "application/json",
+        Prefer: "resolution=merge-duplicates"
+      },
+      body: JSON.stringify({ key, value: valueStr })
+    });
     if (!res.ok) {
       const errText = await res.text();
-      throw new Error(`GitHub write failed for "${key}": ${errText.slice(0, 300)}`);
+      throw new Error(`Supabase write failed for "${key}": ${errText.slice(0, 300)}`);
     }
   }
-  const ghStorage = {
+  const sbStorage = {
     async get(key, shared) {
-      const raw = await ghStorageGetRaw(key);
+      const raw = await sbStorageGetRaw(key);
       if (raw === null) throw new Error(`Key "${key}" not found.`);
       return { key, value: raw, shared: !!shared };
     },
     async set(key, value, shared) {
-      await ghStorageSetRaw(key, value);
+      await sbStorageSetRaw(key, value);
       return { key, value, shared: !!shared };
     },
     async delete(key, shared) {
-      const path = ghKeyToPath(key);
-      const sha = await ghGetFileSha(path);
-      if (sha) {
-        await fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`, {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
-          body: JSON.stringify({ message: `Delete ${key}`, sha, branch: GITHUB_BRANCH })
-        });
-      }
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}?key=eq.${encodeURIComponent(key)}`, {
+        method: "DELETE",
+        headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` }
+      });
+      if (!res.ok) throw new Error(`Supabase delete failed for "${key}" (status ${res.status}).`);
       return { key, deleted: true, shared: !!shared };
     },
     async list(prefix, shared) {
-      throw new Error("list() isn't implemented for the GitHub storage shim.");
+      throw new Error("list() isn't implemented for the Supabase storage shim.");
     }
   };
   const SEED_SPEAKERS = [{ "name": "Angie Gallo", "title": "District 1 school board member, Orange County Public Schools", "bio": "Angie Gallo was elected in 2018 and is serving her first term as an Orange County School Board Member for District 1. She has served as PTA president at the elementary, middle, and high school levels, sat on the Orange County Council of PTA/PTSA board of directors, served as School Advisory Committee chair for East Lake Elementary and on the School Advisory Committee at Corner Lake Middle and East River High. She currently serves on the Board of Directors for Florida PTA as the Educational Pathways Chair and is the Chief Advocate for the Alliance for Public Schools.", "email": "angie.gallo@ocps.net", "phone": "(407) 317-3236", "district": "Orange County Public Schools", "topics": "The View From Florida", "status": "Confirmed", "events": [{ "event": "Market Brief Virtual Summit \u2014 June 2025", "date": "2025-06-06", "session": "The View From Florida", "status": "Confirmed" }] }, { "name": "Beverly Slough", "title": "District 1, vice chair of the board, St. Johns County School District", "bio": "Beverly Slough is vice chair of the St. Johns County School Board, elected in 2002. She also served as past president of the Florida School Boards Association. Slough is also active in the Consortium of State School Boards Associations, serving on the Transition Steering Committee and the Government Affairs Action Committee.", "email": "beverly.slough@stjohns.k12.fl.us", "phone": "(904) 210-7289", "district": "St. Johns County School District", "topics": "The View From Florida", "status": "Confirmed", "events": [{ "event": "Market Brief Virtual Summit \u2014 June 2025", "date": "2025-06-06", "session": "The View From Florida", "status": "Confirmed" }] }, { "name": "Aaron Spence", "title": "Superintendent, Virginia Beach City Public Schools", "bio": "Dr. Aaron Spence has been superintendent of Virginia Beach City Public Schools (VBCPS) since June 2014, overseeing the operation of 86 schools and the education of nearly 65,000 students. Having served communities as a teacher, administrator and superintendent, Spence\u2019s passion for public education, equity work and transformational learning experiences for all students has been the foundation of a career spanning nearly three decades. Recent successes include the creation of an Entrepreneurship and Business Academy, a first-in-the-nation Environmental Studies program at the Chesapeake Bay Foundation\u2019s Brock Environmental Center, digital learning opportunities and access for every child within VBCPS schools, and expanded partnerships with community organizations, higher education, businesses and the military. He was selected as 2018 Virginia Superintendent of the Year by the Virginia Association of School Superintendents, as a 2019 Excellence in Educational Leadership Award recipient by the University Council for Educational Administration, and as the 2021 EmpowerED Digital Superintendent of the Year by the national CoSN.", "email": "Aaron.Spence@vbschools.com", "phone": "", "district": "Virginia Beach City Public Schools", "topics": "Social-Emotional Learning in a Tumultuous Era", "status": "Confirmed", "events": [{ "event": "Market Brief Virtual Summit \u2014 June 2025", "date": "2025-06-06", "session": "Social-Emotional Learning in a Tumultuous Era", "status": "Confirmed" }] }, { "name": "Cynthia Treadwell", "title": "Executive Director, Office of Social-Emotional Learning", "bio": "", "email": "cltreadwell1@cps.org", "phone": "773-553-5058", "district": "", "topics": "Social-Emotional Learning in a Tumultuous Era", "status": "Confirmed", "events": [{ "event": "Market Brief Virtual Summit \u2014 June 2025", "date": "2025-06-06", "session": "Social-Emotional Learning in a Tumultuous Era", "status": "Confirmed" }] }, { "name": "Iyuanna Pease", "title": "Director of SEL and Equity, Folsom Cordova (Calif.) Unified School District", "bio": "Dr. Iyuanna Pease currently serves as the Director of SEL & Equity for the Folsom Cordova Unified School District.  She  is an experienced administrator who has dedicated her career to providing an equitable and inclusive environment for all students, faculty, and families through the establishment of building relationships with all educational partners, improving school climate and serving the whole child.  With 15 years of experience, Dr. Pease has worked with a diverse students and communities including foster, homeless, incarcerated, and other marginalized youth.  She holds a Master\u2019s degree in Educational Counseling and a Doctorate of Education degree in Organizational Leadership.  Dr. Pease is a transformational leader committed to fostering an environment where students can dream big.", "email": "ipease@fcusd.org", "phone": "", "district": "Folsom Cordova (Calif.) Unified School District", "topics": "Social-Emotional Learning in a Tumultuous Era", "status": "Confirmed", "events": [{ "event": "Market Brief Virtual Summit \u2014 June 2025", "date": "2025-06-06", "session": "Social-Emotional Learning in a Tumultuous Era", "status": "Confirmed" }] }, { "name": "David Reinhart", "title": "Director of Professional Learning, Austin (Texas) Independent School District", "bio": "David Reinhart currently serves as the Director of Professional Learning for Austin Independent School District where he leads the professional learning efforts for over 10,000 staff members in an ever-changing landscape.  Born and raised in Houston, Texas, David began his educational career in wilderness therapy for troubled youth in the woods of Virginia.  After earning his Masters degree in Multicultural and Special Education from the University of Texas at Austin, he moved to Mexico and served as the Director of the American School of Pachuca, Hidalgo.  Since returning to Texas and entering public education, he has served as a middle school teacher, instructional coach, and other roles all devoted to the growth and development of teachers and staff. David enjoys spending time outdoors and with his three children.", "email": "david.reinhart@austinisd.org", "phone": "", "district": "Austin (Texas) Independent School District", "topics": "Managing a New, More Complex PD Landscape", "status": "Confirmed", "events": [{ "event": "Market Brief Virtual Summit \u2014 June 2025", "date": "2025-06-06", "session": "Managing a New, More Complex PD Landscape", "status": "Confirmed" }] }, { "name": "Anthony Dougherty", "title": "Director of Professional Development, Palm Beach County (Fla.) School District", "bio": "Anthony Dougherty is the director of professional development for the School District of Palm Beach County, the tenth-largest school district in the United States of America.  Anthony began his career in education as a secondary science teacher.  As he grew in his professional practice, he would also have the privilege of serving in several key leadership roles such as a department instructional leader, human resource specialist, human resources manager, and director.  Currently, as a director, Anthony leads a team to support over 200 schools and departments with programs such as eLearning, Professional Development Certification, New Educator Support, Pre-Service, Single School Culture, Peer Assistant & Review, Performance Standards, and employee evaluations.", "email": "anthony.dougherty@palmbeachschools.org", "phone": "", "district": "Palm Beach County (Fla.) School District", "topics": "Managing a New, More Complex PD Landscape", "status": "Confirmed", "events": [{ "event": "Market Brief Virtual Summit \u2014 June 2025", "date": "2025-06-06", "session": "Managing a New, More Complex PD Landscape", "status": "Confirmed" }] }, { "name": "Kristi Holden", "title": "Director of Professional Learning, Prince George's County (Md.) School Districts", "bio": "", "email": "kristi.holden@pgcps.org", "phone": "", "district": "Prince George's County (Md.) School Districts", "topics": "Managing a New, More Complex PD Landscape", "status": "Confirmed", "events": [{ "event": "Market Brief Virtual Summit \u2014 June 2025", "date": "2025-06-06", "session": "Managing a New, More Complex PD Landscape", "status": "Confirmed" }] }, { "name": "Kara McWilliams", "title": "Vice president of product innovation and development, ETS", "bio": "Kara McWilliams is the vice president of product innovation and development at ETS, which includes the ETS AI Labs. She and her teams lead the ideation, co-design, development and testing of innovative assessment and learning products. McWilliams is also responsible for the enterprise-wise AI strategy, including the development and deployment of novel AI/NLP capabilities to support both operational efficiencies and new products and services.  Previously, she served as the vice president of learning science and insights at Macmillan Learning.", "email": "kmcwilliams@ets.org", "phone": "773-553-5058", "district": "", "topics": "How AI Could Transform Education Company Operations", "status": "Confirmed", "events": [{ "event": "Market Brief Virtual Summit \u2014 June 2025", "date": "2025-06-06", "session": "How AI Could Transform Education Company Operations", "status": "Confirmed" }] }, { "name": "Jon Reifschneider", "title": "Director of the Master of Engineering in AI for Product Innovation program, Duke University", "bio": "Jon Reifschneider is the director of the Master of Engineering in AI for Product Innovation program at Duke University, where he teaches courses in machine learning and deep learning. He also leads the research and development of AI-based educational tools for instructors and learners including the EdGuide platform.", "email": "jon.reifschneider@duke.edu", "phone": "", "district": "", "topics": "How AI Could Transform Education Company Operations", "status": "Confirmed", "events": [{ "event": "Market Brief Virtual Summit \u2014 June 2025", "date": "2025-06-06", "session": "How AI Could Transform Education Company Operations", "status": "Confirmed" }] }, { "name": "Steve Rae", "title": "Senior Vice President of CL Next, Carnegie Learning", "bio": "Steve Rae serves as the senior vice president of CL Next, the incubator and innovation arm of Carnegie Learning. Prior to joining Carnegie Learning, Rae was the senior vice president of customer experience at Berlitz, a global language training provider. Prior to Berlitz, Rae was responsible for professional development products and services at Apollo Education Group.", "email": "srae@carnegielearning.com", "phone": "(404) 451-2039", "district": "", "topics": "How AI Could Transform Education Company Operations", "status": "Confirmed", "events": [{ "event": "Market Brief Virtual Summit \u2014 June 2025", "date": "2025-06-06", "session": "How AI Could Transform Education Company Operations", "status": "Confirmed" }] }, { "name": "Jeremy Davis", "title": "Assistant Superintendent of Innovation and Instructional Support, Fullerton School District; Vice President, California Ed Tech Joint Powers Authority", "bio": "Jeremy\xA0Davis is the assistant superintendent for innovation and instructional support for the 12,000-student Fullerton School District in California, and the Vice President of the California Ed Tech Joint Powers Authority. His district was one of the founding members of the organization, which now serves more than 130 agencies. He currently serves as Past President of CITE, the association that represents all IT workers and administrators in California. Davis\xA0currently serves as assistant superintendent in a district that\xA0prides itself on celebrating student\xA0voice, choice, and agency. In Fullerton we are constantly innovating and striving to go beyond what is expected to explore the deeply unexpected to engage our students. The district hosts a huge festival (FSD Fest) at Cal State Fullerton every year for students to\xA0showcase their passions, play esports,\xA0and do\xA0Ted\xA0Talks. The school system is also currently working with a group of 8th graders and community partners to attempt to build a tiny home to\xA0help address our community's homeless issues.", "email": "jeremy_davis@myfsd.org", "phone": "714-447-7478", "district": "California Ed Tech Joint Powers Authority", "topics": "Inside California\u2019s Growing Ed-Tech Purchasing Consortium", "status": "Confirmed", "events": [{ "event": "Market Brief Virtual Summit \u2014 June 2025", "date": "2025-06-06", "session": "Inside California\u2019s Growing Ed-Tech Purchasing Consortium", "status": "Confirmed" }] }, { "name": "Susan Enfield", "title": "Superintendent of Washoe County Schools in Nevada", "bio": "Dr. Susan Enfield is superintendent for the Washoe County School District in Reno, Nevada. Serving over 62,000 students across more than 100 schools, Washoe County is the second largest district in the state. Prior to Washoe, Dr. Enfield spent a decade serving as \nsuperintendent for Highline Public Schools outside Seattle, Washington. Under her leadership, Highline worked to deliver on its promise to know every student by name, strength and need so they graduate prepared for the future they choose", "email": "susan.enfield@washoeschools.net", "phone": "", "district": "Superintendent of Washoe County Schools in Nevada", "topics": "District Leaders\u2019 Top Priorities for the Year Ahead", "status": "Confirmed", "events": [{ "event": "Market Brief Virtual Summit \u2014 June 2025", "date": "2025-06-06", "session": "District Leaders\u2019 Top Priorities for the Year Ahead", "status": "Confirmed" }] }, { "name": "Calvin Watts", "title": "Superintendent of Gwinnett County Public Schools in Georgia", "bio": "Dr. Calvin J. Watts has served as superintendent of Gwinnett County Public Schools (GCPS)\u2014Georgia\u2019s largest school district and the eleventh-largest and seventh-most diverse district in the Nation\u2014since July 30, 2021. Dr. Watts leads a bold strategic planning process focused on empathy, equity, effectiveness, and excellence\u2014Our Blueprint for the Future.", "email": "Melissa.Laramie@gcpsk12.org", "phone": "", "district": "Superintendent of Gwinnett County Public Schools in Georgia", "topics": "District Leaders\u2019 Top Priorities for the Year Ahead", "status": "Confirmed", "events": [{ "event": "Market Brief Virtual Summit \u2014 June 2025", "date": "2025-06-06", "session": "District Leaders\u2019 Top Priorities for the Year Ahead", "status": "Confirmed" }] }, { "name": "Curtis Cain", "title": "Superintendent of Rockwood School District in Missouri", "bio": "Curtis Cain is the superintendent of Rockwood Schools in Missouri. He was named the AASA and Missouri Association of School Administrators Superintendent of the Year in 2022.  He hold a doctorate degree and a Master of Science in Educational Administration from Iowa State University.", "email": "caincurtis@rsdmo.org", "phone": "610-420-0146", "district": "Superintendent of Rockwood School District in Missouri", "topics": "District Leaders\u2019 Top Priorities for the Year Ahead", "status": "Confirmed", "events": [{ "event": "Market Brief Virtual Summit \u2014 June 2025", "date": "2025-06-06", "session": "District Leaders\u2019 Top Priorities for the Year Ahead", "status": "Confirmed" }] }, { "name": "Melissa May", "title": "Chief People Officer, Cambium Learning Group", "bio": "", "email": "adonovan@inkhouse.com", "phone": "", "district": "", "topics": "Leadership Challenge: How to Manage a Remote Team Effectively", "status": "Confirmed", "events": [{ "event": "Market Brief Virtual Summit \u2014 June 2025", "date": "2025-06-06", "session": "Leadership Challenge: How to Manage a Remote Team Effectively", "status": "Confirmed" }] }, { "name": "Douglas Harris", "title": "Douglas Harris is Professor and Chair of the Department of Economics, Tulane University, and the founding Director of National Center for Research on Education Access and Choice (REACH).", "bio": "Douglas Harris is Professor and Chair of the Department of Economics, the Schlieder Foundation Chair in Public Education, founding Director of both the Education Research Alliance for New Orleans (ERA-New Orleans) and Director of the National Center for Research on Education Access and Choice (REACH), all at Tulane University. His research has influenced policy and practice on a wide variety of K-12 and higher education policy issues. He is the author of three books including, most recently, Charter School City: What the End of Traditional Public Schools in New Orleans Means for American Education (University of Chicago Press, 2020). Doug is also a non-resident Senior Fellow at the Brookings Institution and has testified in the U.S. Senate and advised governors in eight states, the U.S. Department of Education, and Biden Transition. His work has also been cited in almost every major national and international media outlet.", "email": "dharri5@tulane.edu", "phone": "", "district": "", "topics": "What to Know About the Private School Market", "status": "Confirmed", "events": [{ "event": "Market Brief Virtual Summit \u2014 June 2025", "date": "2025-06-06", "session": "What to Know About the Private School Market", "status": "Confirmed" }] }, { "name": "Patrick Brothers", "title": "Co-CEO and co-founder HolonIQ", "bio": "Patrick Brothers is a Co-CEO at HolonIQ, the global market intelligence platform, and a leading voice and speaker on the global impact economy, co-hosting HolonIQ\u2019s annual Global Impact Summit in over 10 cities around the world each year. He is a notable contributor at the G20, World Economic Forum and other multilateral and global industry meetings. Prior to HolonIQ, Patrick served as Chairman, CEO and executive roles in strategy, technology and corporate development at industry bodies, investment funds and at a number of multinational public companies working in infrastructure and education. He served as a director at Deloitte in M&A and Corporate Finance working with industry and private equity clients around the world in TMT after starting his career as an Army Officer leading parachute and air operations teams.", "email": "patrick@holoniq.com", "phone": "", "district": "", "topics": "", "status": "Confirmed", "events": [{ "event": "Market Brief Virtual Summit \u2014 June 2025", "date": "2025-06-06", "session": "", "status": "Confirmed" }] }, { "name": "Emily Foote", "title": "Partner, Osage Venture Partners", "bio": "Emily Foote is a Partner at Osage Venture Partners \nEmily joined OVP after co-founding Practice, an education technology company, which was sold in December 2017 to Instructure, a leading public education technology company.  At Instructure, Emily wore many hats including VP of Strategy and VP of Customer Success.  Prior to her entrepreneurial career, Emily spent two years practicing education law and five years as a Teach for America and KIPP classroom teacher.  \n\nEmily is a graduate of the University of Pennsylvania, the University of Pennsylvania\u2019s Graduate School of Education, and Drexel University Kline School of Law in 2010.", "email": "efoote@osagepartners.com", "phone": "", "district": "", "topics": "", "status": "Confirmed", "events": [{ "event": "Market Brief Virtual Summit \u2014 June 2025", "date": "2025-06-06", "session": "", "status": "Confirmed" }] }, { "name": "Adam Newman", "title": "Founder, managing director Tyton Partners", "bio": "", "email": "anewman@tytonpartners.com", "phone": "", "district": "", "topics": "", "status": "Confirmed", "events": [{ "event": "Market Brief Virtual Summit \u2014 June 2025", "date": "2025-06-06", "session": "", "status": "Confirmed" }] }, { "name": "Julie Garcia", "title": "STEM Director, San Diego Unified School District", "bio": "Julie Garcia was a math science teacher for 20 years before leaving the classroom and working in central office. As a resource teacher, manager, site leader and Director, she has experience leading technology initiatives in San Diego Unified School District. She has a passion for integrated instruction with purposeful technology. Her current work is around leading the Math, Science and Technology work of SDUSD", "email": "jgarcia@sandi.net", "phone": "619-933-5895", "district": "San Diego Unified School District", "topics": "Why Teachers Embrace or Reject New Classroom Technologies", "status": "Confirmed", "events": [{ "event": "Market Brief Virtual Summit \u2014 June 2025", "date": "2025-06-06", "session": "Why Teachers Embrace or Reject New Classroom Technologies", "status": "Confirmed" }] }, { "name": "Amanda Ruch", "title": "8th Grade Math Teacher, Cesar A. Chavez Multicultural Academic Center, Chicago Public Schools", "bio": "", "email": "alruch1@cps.edu", "phone": "", "district": "Chicago Public Schools", "topics": "Why Teachers Embrace or Reject New Classroom Technologies", "status": "Confirmed", "events": [{ "event": "Market Brief Virtual Summit \u2014 June 2025", "date": "2025-06-06", "session": "Why Teachers Embrace or Reject New Classroom Technologies", "status": "Confirmed" }] }, { "name": "Nikki Jones", "title": "Nikki Jones, instructional technology coach, Prince William County (Va.) Schools", "bio": "Nikki Jones is an Instructional Technology Coach in Northern Virginia. Prior to moving into her current role where she supports K-5 with meaningful tech integration, she taught 1st and 3rd grades. Nikki has a master's degree in education and 16 years of experience using technology to challenge students to think critically, problem solve and be creative. To educate future-ready students Nikki focuses on creativity, STEAM and computer science! She is passionate about helping, inspiring and training educators to integrate technology in ways that are innovative, highly engaging and promote student choice, voice and creation. She works closely with staff members to help them build their technology skills and become more confident while integrating technology that empowers student learning! Nikki will be presenting at ISTE Live in Philadelphia. She is a Quizizz Game-Changer, Class Dojo Mentor, Flip Student Voice Ambassador, a SMART Ambassador, Novel Effect Ambassador,\u202FOzobot\u202FCertified Educator, Adobe Creative Educator Leader, Microsoft Innovative Educator Expert and an HP Fellow in Cohort 4.", "email": "JonesNE@pwcs.edu", "phone": "", "district": "", "topics": "Why Teachers Embrace or Reject New Classroom Technologies", "status": "Confirmed", "events": [{ "event": "Market Brief Virtual Summit \u2014 June 2025", "date": "2025-06-06", "session": "Why Teachers Embrace or Reject New Classroom Technologies", "status": "Confirmed" }] }, { "name": "James Hausman", "title": "School PBL/STEAM Coordinator, South Fayette (Pa.) School District", "bio": "James Hausman III is the high school PBL/STEAM Coordinator in South Fayette, a future-focused, student-centered, innovation-driven district outside Pittsburgh, PA. He is a former English teacher. His current work involves supporting teachers in their PBL journeys and securing school-business partnerships for experiential student learning. His students are state and nationally recognized for their design and invention work. His academic interests include AI ethics, CS, game studies, human-centered design, human-computer interaction, invention and maker learning, poetry, school-business partnerships, and Shakespeare. He co-advises his school's Health Careers Club and advises the STEM, Girls STEM, and Technology Student Association clubs. He is a Pactful Ambassador, HP Teaching Fellow (Cohort 4), Project Invent Fellow, Samsung Teacher Academy Fellow, and PA Governor's STEM Teacher. When not mentoring students to engineer their futures, you will likely find him traveling and wandering in far-flung places to see all the world's many birds.", "email": "jlhausman@southfayette.org", "phone": "", "district": "South Fayette (Pa.) School District", "topics": "Why Teachers Embrace or Reject New Classroom Technologies", "status": "Confirmed", "events": [{ "event": "Market Brief Virtual Summit \u2014 June 2025", "date": "2025-06-06", "session": "Why Teachers Embrace or Reject New Classroom Technologies", "status": "Confirmed" }] }, { "name": "Nikolai Vitti", "title": "Superintendent, Detroit Public Schools", "bio": "Dr. Nikolai Vitti was appointed as Superintendent of Detroit Public Schools Community District (DPSCD) on May 23, 2017 on a five-year contract. On December 8, 2021, the School Board extended his contract by an additional three years until June 30, 2025. In strong partnership with the School Board, Dr. Vitti has rebuilt the school district after two decades of disinvestment under State Controlled Emergency Management and was most recently Urban School District Superintendent of the Year in 2022. Through the development and implementation of a Strategic Plan, along with hundreds of community and family engagement sessions over the years, DPSCD has experienced improvement for the first time in decades in the areas of enrollment; student achievement; student attendance; teacher recruitment, retention, and pay; leadership development and stability; student programming, including expansion of the arts; and financial stability. This improvement has led to reduced levels of financial and program oversight and monitoring by the federal and state government. This school year, 35 schools previously identified by the State to be closed for low performance were recently removed from the State\u2019s lowest performing category. \nBefore arriving in Detroit, Dr. Vitti led the Duval County Public Schools (DCPS), the 20th largest school district in the nation with approximately 130,000 enrolled students in 200 schools, and a fiscal budget of $1.7 billion. Previously, he served as chief academic officer of the Miami-Dade County Public Schools, assistant superintendent for the Miami-Dade school district and deputy chancellor at the Florida Department of Education. He also served children as a Principal, Dean of Students, and teacher.", "email": "nikolai.vitti@detroitk12.org", "phone": "313 8737922", "district": "Detroit Public Schools", "topics": "One-on-One With a Superintendent: What District Transformation Looks Like From the Inside.", "status": "Confirmed", "events": [{ "event": "Market Brief Virtual Summit \u2014 June 2025", "date": "2025-06-06", "session": "One-on-One With a Superintendent: What District Transformation Looks Like From the Inside.", "status": "Confirmed" }] }];
@@ -426,12 +401,12 @@
       setError(null);
       try {
         const [spResult, dsResult, teamResult, lastReportedResult, slackLegacyResult, slackListResult] = await Promise.all([
-          ghStorage.get("roster:speakers", true).catch(() => null),
-          ghStorage.get("roster:districts", true).catch(() => null),
-          ghStorage.get("roster:team", true).catch(() => null),
-          ghStorage.get("roster:lastReportedDate", true).catch(() => null),
-          ghStorage.get("roster:slackWebhookUrl", true).catch(() => null),
-          ghStorage.get("roster:slackWebhooks", true).catch(() => null)
+          sbStorage.get("roster:speakers", true).catch(() => null),
+          sbStorage.get("roster:districts", true).catch(() => null),
+          sbStorage.get("roster:team", true).catch(() => null),
+          sbStorage.get("roster:lastReportedDate", true).catch(() => null),
+          sbStorage.get("roster:slackWebhookUrl", true).catch(() => null),
+          sbStorage.get("roster:slackWebhooks", true).catch(() => null)
         ]);
         let spArray = spResult ? JSON.parse(spResult.value) : [];
         const dsArray = dsResult ? JSON.parse(dsResult.value) : [];
@@ -449,7 +424,7 @@
           return { ...sp, events: sp.events.map((e) => EVENT_RENAMES[e.event] ? { ...e, event: EVENT_RENAMES[e.event] } : e) };
         });
         if (renamed) {
-          await ghStorage.set("roster:speakers", JSON.stringify(spArray), true);
+          await sbStorage.set("roster:speakers", JSON.stringify(spArray), true);
         }
         const RECORRECT_JUNE2025_NAMES = new Set(SEED_SPEAKERS.map((s) => s.name.trim().toLowerCase()));
         let recorrected = false;
@@ -465,7 +440,7 @@
           };
         });
         if (recorrected) {
-          await ghStorage.set("roster:speakers", JSON.stringify(spArray), true);
+          await sbStorage.set("roster:speakers", JSON.stringify(spArray), true);
         }
         const existingNamesLower = new Set(spArray.map((sp) => sp.name.trim().toLowerCase()));
         const newJune2025Speakers = SEED_SPEAKERS_2025_JUNE.filter((s) => !existingNamesLower.has(s.name.trim().toLowerCase()));
@@ -487,7 +462,7 @@
               outreachLog: []
             }))
           ];
-          await ghStorage.set("roster:speakers", JSON.stringify(spArray), true);
+          await sbStorage.set("roster:speakers", JSON.stringify(spArray), true);
         }
         let photosAdded = false;
         spArray = spArray.map((sp) => {
@@ -498,7 +473,7 @@
           return { ...sp, photo: match };
         });
         if (photosAdded) {
-          await ghStorage.set("roster:speakers", JSON.stringify(spArray), true);
+          await sbStorage.set("roster:speakers", JSON.stringify(spArray), true);
         }
         let photosAdded2 = false;
         spArray = spArray.map((sp) => {
@@ -509,7 +484,7 @@
           return { ...sp, photo: match };
         });
         if (photosAdded2) {
-          await ghStorage.set("roster:speakers", JSON.stringify(spArray), true);
+          await sbStorage.set("roster:speakers", JSON.stringify(spArray), true);
         }
         let addedEvent = false;
         spArray = spArray.map((sp) => {
@@ -518,14 +493,14 @@
           return updated;
         });
         if (addedEvent) {
-          await ghStorage.set("roster:speakers", JSON.stringify(spArray), true);
+          await sbStorage.set("roster:speakers", JSON.stringify(spArray), true);
         }
         let slackWebhooksFinal = slackWebhooksList;
         const legacyUrl = slackLegacyResult ? (slackLegacyResult.value || "").trim() : "";
         if (!slackWebhooksFinal) {
           slackWebhooksFinal = legacyUrl ? [{ id: uid(), url: legacyUrl, label: "Default" }] : [];
           if (legacyUrl) {
-            await ghStorage.set("roster:slackWebhooks", JSON.stringify(slackWebhooksFinal), true);
+            await sbStorage.set("roster:slackWebhooks", JSON.stringify(slackWebhooksFinal), true);
           }
         }
         setSpeakers(spArray.sort((a, b) => a.name.localeCompare(b.name)));
@@ -540,19 +515,19 @@
       }
     }
     async function persistSpeakers(next) {
-      await ghStorage.set("roster:speakers", JSON.stringify(next), true);
+      await sbStorage.set("roster:speakers", JSON.stringify(next), true);
     }
     async function persistDistricts(next) {
-      await ghStorage.set("roster:districts", JSON.stringify(next), true);
+      await sbStorage.set("roster:districts", JSON.stringify(next), true);
     }
     async function persistTeam(next) {
-      await ghStorage.set("roster:team", JSON.stringify(next), true);
+      await sbStorage.set("roster:team", JSON.stringify(next), true);
     }
     async function persistLastReportedDate(dateStr) {
-      await ghStorage.set("roster:lastReportedDate", dateStr, true);
+      await sbStorage.set("roster:lastReportedDate", dateStr, true);
     }
     async function persistSlackWebhooks(next) {
-      await ghStorage.set("roster:slackWebhooks", JSON.stringify(next), true);
+      await sbStorage.set("roster:slackWebhooks", JSON.stringify(next), true);
     }
     async function addSlackWebhook(url, label) {
       const trimmedUrl = url.trim();
