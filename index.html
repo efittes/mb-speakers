@@ -320,12 +320,22 @@
       var _a;
       return (_a = w[0]) == null ? void 0 : _a.toUpperCase();
     }).join("");
+    function handleDragStart(e) {
+      if (!photo) return;
+      const safeName = (name || "speaker").replace(/[\\/:*?"<>|]/g, "").trim() || "speaker";
+      try {
+        e.dataTransfer.setData("DownloadURL", `image/jpeg:${safeName}.jpg:${photo}`);
+      } catch (err) {
+      }
+    }
     if (photo && !failed) {
       return /* @__PURE__ */ React.createElement(
         "img",
         {
           src: photo,
           alt: name || "Speaker photo",
+          draggable: "true",
+          onDragStart: handleDragStart,
           onError: () => setFailed(true),
           style: { width: size, height: size, borderRadius: "50%", objectFit: "cover", flexShrink: 0, border: "1px solid #D8D0BE" }
         }
