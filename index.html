@@ -1408,10 +1408,6 @@
   }
   function SpeakerEditModal({ speaker, districts, speakers, saving, onCancel, onSave }) {
     const [form, setForm] = useState(speaker);
-    const [bioText, setBioText] = useState("");
-    const [autoFilling, setAutoFilling] = useState(false);
-    const [autoFillError, setAutoFillError] = useState(null);
-    const [autoFillNote, setAutoFillNote] = useState(null);
     const [photoError, setPhotoError] = useState(null);
     const [photoLoading, setPhotoLoading] = useState(false);
     const sessionOptions = useMemo(() => {
@@ -1471,68 +1467,7 @@
       return (speakers || []).find((sp) => sp.id !== speaker.id && sp.name.trim().toLowerCase() === trimmed) || null;
     }, [form.name, speakers, speaker.id]);
     const canSave = form.name.trim().length > 0 && !duplicateMatch;
-    async function handleAutoFill() {
-      const text = bioText.trim();
-      if (!text) return;
-      setAutoFilling(true);
-      setAutoFillError(null);
-      setAutoFillNote(null);
-      try {
-        const prompt = `Extract these fields about the person described in this bio text. Respond with ONLY a raw JSON object, no markdown fences, no preamble, no explanation:
-{"name": "", "title": "", "bio": "a short, lightly-cleaned-up bio ONLY if the source text already contains an actual biographical description of this person (a paragraph describing their background, role, or career) \u2014 trim stray whitespace/line breaks but do not invent, summarize from scattered facts, or compose new sentences; if the text has no such bio paragraph, use an empty string", "email": "", "phone": "", "district": "school district, state education agency, or organization name if mentioned, else empty string", "photo": "a direct image URL only if one literally appears in the text, else empty string"}
-Use an empty string for any field you can't find. Do not fabricate or author a bio that is not already present in the source text. Bio text:
-
-${text.slice(0, 9e3)}`;
-        const apiResp = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: "claude-sonnet-4-6",
-            max_tokens: 1e3,
-            messages: [{ role: "user", content: prompt }]
-          })
-        });
-        if (!apiResp.ok) throw new Error(`Extraction request failed (status ${apiResp.status})`);
-        const data = await apiResp.json();
-        const textBlock = (data.content || []).find((c) => c.type === "text");
-        if (!textBlock) throw new Error("No usable response from extraction");
-        const cleaned = textBlock.text.replace(/```json|```/g, "").trim();
-        const extracted = JSON.parse(cleaned);
-        setForm((f) => ({
-          ...f,
-          name: extracted.name || f.name,
-          title: extracted.title || f.title,
-          bio: extracted.bio || f.bio,
-          email: extracted.email || f.email,
-          phone: extracted.phone || f.phone,
-          district: extracted.district || f.district,
-          photo: extracted.photo || f.photo
-        }));
-        setAutoFillNote("Filled in below \u2014 double-check everything before saving.");
-      } catch (e) {
-        setAutoFillError((e == null ? void 0 : e.message) || "Couldn't extract details from that text. Fill in the fields manually instead.");
-      } finally {
-        setAutoFilling(false);
-      }
-    }
-    return /* @__PURE__ */ React.createElement(ModalShell, { onCancel, title: speaker.name ? "Edit speaker" : "Add speaker" }, /* @__PURE__ */ React.createElement("div", { style: { border: "1px solid #D8D0BE", borderRadius: "3px", padding: "12px", marginBottom: "18px", background: "#FBF9F4" } }, /* @__PURE__ */ React.createElement("label", { style: labelStyle }, "Auto-fill from pasted bio text"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "11px", color: "#A39C8A", margin: "2px 0 8px" } }, "Open their bio page, select and copy the text (\u2318/Ctrl+A, \u2318/Ctrl+C on the page), and paste it below. Browsers don't let this app fetch other websites directly, so a link alone won't work \u2014 but pasted text does. Only fills in a bio if one already appears in the pasted text \u2014 it won't write one from scratch."), /* @__PURE__ */ React.createElement(
-      "textarea",
-      {
-        style: { ...inputStyle(), minHeight: "90px", resize: "vertical" },
-        value: bioText,
-        onChange: (e) => setBioText(e.target.value),
-        placeholder: "Paste the copied bio page text here\u2026",
-        disabled: autoFilling
-      }
-    ), /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        onClick: handleAutoFill,
-        disabled: autoFilling || !bioText.trim(),
-        style: { ...secondaryBtnStyle, marginTop: "8px", opacity: autoFilling || !bioText.trim() ? 0.5 : 1, cursor: autoFilling || !bioText.trim() ? "not-allowed" : "pointer" }
-      },
-      autoFilling ? "Extracting\u2026" : "Auto-fill from pasted text"
-    ), autoFillError && /* @__PURE__ */ React.createElement("p", { style: { fontSize: "12px", color: "#8C2F39", margin: "8px 0 0" } }, autoFillError), autoFillNote && /* @__PURE__ */ React.createElement("p", { style: { fontSize: "12px", color: "#4B6B4F", margin: "8px 0 0" } }, autoFillNote)), /* @__PURE__ */ React.createElement("label", { style: labelStyle }, "Name"), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement(ModalShell, { onCancel, title: speaker.name ? "Edit speaker" : "Add speaker" }, /* @__PURE__ */ React.createElement("label", { style: labelStyle }, "Name"), /* @__PURE__ */ React.createElement(
       "input",
       {
         style: { ...inputStyle(), ...duplicateMatch ? { borderColor: "#8C2F39" } : {} },
