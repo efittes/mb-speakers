@@ -389,6 +389,7 @@
     const [speakerSort, setSpeakerSort] = useState("name");
     const [expandedId, setExpandedId] = useState(null);
     const [editingSpeaker, setEditingSpeaker] = useState(null);
+    const [pendingConfirm, setPendingConfirm] = useState(null);
     const [showBulkImportModal, setShowBulkImportModal] = useState(false);
     const [editingDistrict, setEditingDistrict] = useState(null);
     const [confirmDeleteId, setConfirmDeleteId] = useState(null);
@@ -582,6 +583,20 @@
       const sp = speakers.find((s) => s.id === speakerId);
       if (!sp || sp.status === status) return;
       await saveSpeaker({ ...sp, status });
+    }
+    function requestStatusChange(speakerId, status) {
+      const sp = speakers.find((s) => s.id === speakerId);
+      if (!sp || sp.status === status) return;
+      if (status === "Confirmed") {
+        setPendingConfirm(sp);
+      } else {
+        changeSpeakerStatus(speakerId, status);
+      }
+    }
+    async function confirmPendingStatusChange() {
+      if (!pendingConfirm) return;
+      await changeSpeakerStatus(pendingConfirm.id, "Confirmed");
+      setPendingConfirm(null);
     }
     async function saveSpeaker(sp) {
       setSaving(true);
@@ -965,7 +980,7 @@
         onDelete: deleteSpeaker,
         team,
         onLogOutreach: addOutreachEntry,
-        onChangeStatus: changeSpeakerStatus
+        onChangeStatus: requestStatusChange
       }
     ) : tab === "recruitment" ? groupBySession ? recruitmentSpeakers.length === 0 ? /* @__PURE__ */ React.createElement(EmptyState, { title: "Nothing in active recruitment", subtitle: "Speakers marked Prospect, Invited, or Confirmed will show up here automatically." }) : filteredRecruitment.length === 0 ? /* @__PURE__ */ React.createElement(EmptyState, { title: "Nothing matches", subtitle: "Try a different search or filter." }) : sessionGroups.map((group) => /* @__PURE__ */ React.createElement("div", { key: group.session, style: { marginBottom: "8px" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: "8px", padding: "18px 4px 8px", borderBottom: "2px solid #1E2A32" } }, /* @__PURE__ */ React.createElement("h3", { style: { fontFamily: "Fraunces, serif", fontSize: "17px", fontWeight: 600, margin: 0 } }, group.session), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "12px", color: "#7A7568" } }, group.speakers.length, " ", group.speakers.length === 1 ? "speaker" : "speakers")), /* @__PURE__ */ React.createElement(
       SpeakerList,
@@ -980,7 +995,7 @@
         onDelete: deleteSpeaker,
         team,
         onLogOutreach: addOutreachEntry,
-        onChangeStatus: changeSpeakerStatus,
+        onChangeStatus: requestStatusChange,
         flagStaleOutreach: true
       }
     ))) : /* @__PURE__ */ React.createElement(
@@ -996,7 +1011,7 @@
         onDelete: deleteSpeaker,
         team,
         onLogOutreach: addOutreachEntry,
-        onChangeStatus: changeSpeakerStatus,
+        onChangeStatus: requestStatusChange,
         emptyTitle: "Nothing in active recruitment",
         emptySubtitle: "Speakers marked Prospect, Invited, or Confirmed will show up here automatically.",
         flagStaleOutreach: true
@@ -1055,6 +1070,18 @@
         saving,
         onCancel: () => setEditingSpeaker(null),
         onSave: saveSpeaker
+      }
+    ), pendingConfirm && /* @__PURE__ */ React.createElement(
+      ConfirmStatusModal,
+      {
+        speaker: pendingConfirm,
+        saving,
+        onCancel: () => setPendingConfirm(null),
+        onConfirm: confirmPendingStatusChange,
+        onEditFirst: () => {
+          setEditingSpeaker(pendingConfirm);
+          setPendingConfirm(null);
+        }
       }
     ), editingDistrict && /* @__PURE__ */ React.createElement(
       DistrictEditModal,
@@ -1132,7 +1159,8 @@
       const lastTouch = lastOutreach(sp);
       const daysSinceTouch = lastTouch ? daysSince(lastTouch.date) : null;
       const isStale = flagStaleOutreach && sp.status !== "Confirmed" && (!lastTouch || daysSinceTouch !== null && daysSinceTouch > RECRUITMENT_STALE_OUTREACH_DAYS);
-      return /* @__PURE__ */ React.createElement("div", { key: sp.id, style: { borderBottom: "1px solid #D8D0BE" } }, /* @__PURE__ */ React.createElement("div", { onClick: () => setExpandedId(isOpen ? null : sp.id), style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 4px", cursor: "pointer", gap: "12px" } }, /* @__PURE__ */ React.createElement(Avatar, { photo: sp.photo, name: sp.name }), /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0, flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: "10px", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "Fraunces, serif", fontSize: "18px", fontWeight: 500 } }, sp.name || "Untitled speaker"), /* @__PURE__ */ React.createElement(StatusSelect, { status: sp.status, onChange: (val) => onChangeStatus(sp.id, val) }), sp.district && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "12px", color: "#7A7568" } }, sp.district), isStale && /* @__PURE__ */ React.createElement("span", { style: { color: "#F3EEE4", background: "#A13E2A", fontFamily: "Inter, sans-serif", fontSize: "11px", fontWeight: 700, padding: "2px 8px", borderRadius: "3px", letterSpacing: "0.02em", whiteSpace: "nowrap" } }, "\u26A0 Needs outreach")), sp.title && /* @__PURE__ */ React.createElement("p", { style: { margin: "2px 0 0", fontSize: "13px", color: "#1E2A32" } }, sp.title), sp.topics && /* @__PURE__ */ React.createElement("p", { style: { margin: "3px 0 0", fontSize: "13px", color: "#7A7568", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, sp.topics), /* @__PURE__ */ React.createElement("p", { style: { margin: "3px 0 0", fontSize: "12px", color: isStale ? "#A13E2A" : lastTouch ? "#4B6B4F" : "#A39C8A", fontWeight: isStale ? 600 : 400 } }, lastTouch ? `Last outreach: ${lastTouch.date} by ${lastTouch.by}${lastTouch.note ? ` \u2014 ${lastTouch.note}` : ""}` : "No outreach logged yet", isStale && lastTouch && ` (${daysSinceTouch} days ago)`)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "13px", color: "#7A7568", flexShrink: 0 } }, sp.events.length, " ", sp.events.length === 1 ? "event" : "events"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "18px", color: "#7A7568", flexShrink: 0, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s" } }, "\u203A")), isOpen && /* @__PURE__ */ React.createElement("div", { style: { padding: "0 4px 22px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(Avatar, { photo: sp.photo, name: sp.name, size: 72 }), /* @__PURE__ */ React.createElement("h3", { style: { ...sectionLabelStyle, marginTop: "16px" } }, "Contact"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "14px", margin: "0 0 4px" } }, sp.email || "\u2014"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "14px", margin: 0, color: "#7A7568" } }, sp.phone || ""), /* @__PURE__ */ React.createElement("h3", { style: { ...sectionLabelStyle, marginTop: "16px" } }, "Title"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "14px", margin: 0 } }, sp.title || "\u2014"), /* @__PURE__ */ React.createElement("h3", { style: { ...sectionLabelStyle, marginTop: "16px" } }, "State / District"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "14px", margin: 0 } }, sp.district || "\u2014"), /* @__PURE__ */ React.createElement("h3", { style: { ...sectionLabelStyle, marginTop: "16px" } }, "Bio"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "14px", margin: 0, lineHeight: 1.5, whiteSpace: "pre-wrap" } }, sp.bio || "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "16px", display: "flex", gap: "10px" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => onEdit(sp), style: secondaryBtnStyle }, "Edit"), confirmDeleteId === sp.id ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: () => onDelete(sp.id), style: { ...secondaryBtnStyle, color: "#8C2F39", borderColor: "#8C2F39" } }, "Confirm remove"), /* @__PURE__ */ React.createElement("button", { onClick: () => setConfirmDeleteId(null), style: secondaryBtnStyle }, "Cancel")) : /* @__PURE__ */ React.createElement("button", { onClick: () => setConfirmDeleteId(sp.id), style: { ...secondaryBtnStyle, color: "#7A7568" } }, "Remove"))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h3", { style: sectionLabelStyle }, "Event history"), sp.events.length === 0 ? /* @__PURE__ */ React.createElement("p", { style: { fontSize: "13px", color: "#7A7568", margin: 0 } }, "No events logged yet.") : [...sp.events].sort((a, b) => (b.date || "").localeCompare(a.date || "")).map((ev, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { padding: "8px 0", borderTop: i === 0 ? "none" : "1px solid #EAE4D6" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "8px" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "14px", fontWeight: 500 } }, ev.event || "Untitled event"), /* @__PURE__ */ React.createElement(Badge, { status: ev.status || "Prospect" })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "12px", color: "#7A7568", marginTop: "2px" } }, ev.date || "No date", ev.session ? ` \xB7 ${ev.session}` : ""))))), isOpen && /* @__PURE__ */ React.createElement("div", { style: { padding: "0 4px 22px" } }, /* @__PURE__ */ React.createElement(OutreachLog, { speaker: sp, team, onLog: onLogOutreach })));
+      const showNeedsOutreachBadge = isStale && sp.status === "Invited";
+      return /* @__PURE__ */ React.createElement("div", { key: sp.id, style: { borderBottom: "1px solid #D8D0BE" } }, /* @__PURE__ */ React.createElement("div", { onClick: () => setExpandedId(isOpen ? null : sp.id), style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 4px", cursor: "pointer", gap: "12px" } }, /* @__PURE__ */ React.createElement(Avatar, { photo: sp.photo, name: sp.name }), /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0, flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: "10px", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "Fraunces, serif", fontSize: "18px", fontWeight: 500 } }, sp.name || "Untitled speaker"), /* @__PURE__ */ React.createElement(StatusSelect, { status: sp.status, onChange: (val) => onChangeStatus(sp.id, val) }), sp.district && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "12px", color: "#7A7568" } }, sp.district), showNeedsOutreachBadge && /* @__PURE__ */ React.createElement("span", { style: { color: "#F3EEE4", background: "#A13E2A", fontFamily: "Inter, sans-serif", fontSize: "11px", fontWeight: 700, padding: "2px 8px", borderRadius: "3px", letterSpacing: "0.02em", whiteSpace: "nowrap" } }, "\u26A0 Needs outreach")), sp.title && /* @__PURE__ */ React.createElement("p", { style: { margin: "2px 0 0", fontSize: "13px", color: "#1E2A32" } }, sp.title), sp.topics && /* @__PURE__ */ React.createElement("p", { style: { margin: "3px 0 0", fontSize: "13px", color: "#7A7568", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, sp.topics), /* @__PURE__ */ React.createElement("p", { style: { margin: "3px 0 0", fontSize: "12px", color: isStale ? "#A13E2A" : lastTouch ? "#4B6B4F" : "#A39C8A", fontWeight: isStale ? 600 : 400 } }, lastTouch ? `Last outreach: ${lastTouch.date} by ${lastTouch.by}${lastTouch.note ? ` \u2014 ${lastTouch.note}` : ""}` : "No outreach logged yet", isStale && lastTouch && ` (${daysSinceTouch} days ago)`)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "13px", color: "#7A7568", flexShrink: 0 } }, sp.events.length, " ", sp.events.length === 1 ? "event" : "events"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "18px", color: "#7A7568", flexShrink: 0, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s" } }, "\u203A")), isOpen && /* @__PURE__ */ React.createElement("div", { style: { padding: "0 4px 22px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(Avatar, { photo: sp.photo, name: sp.name, size: 72 }), /* @__PURE__ */ React.createElement("h3", { style: { ...sectionLabelStyle, marginTop: "16px" } }, "Contact"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "14px", margin: "0 0 4px" } }, sp.email || "\u2014"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "14px", margin: 0, color: "#7A7568" } }, sp.phone || ""), /* @__PURE__ */ React.createElement("h3", { style: { ...sectionLabelStyle, marginTop: "16px" } }, "Title"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "14px", margin: 0 } }, sp.title || "\u2014"), /* @__PURE__ */ React.createElement("h3", { style: { ...sectionLabelStyle, marginTop: "16px" } }, "State / District"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "14px", margin: 0 } }, sp.district || "\u2014"), /* @__PURE__ */ React.createElement("h3", { style: { ...sectionLabelStyle, marginTop: "16px" } }, "Bio"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "14px", margin: 0, lineHeight: 1.5, whiteSpace: "pre-wrap" } }, sp.bio || "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "16px", display: "flex", gap: "10px" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => onEdit(sp), style: secondaryBtnStyle }, "Edit"), confirmDeleteId === sp.id ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: () => onDelete(sp.id), style: { ...secondaryBtnStyle, color: "#8C2F39", borderColor: "#8C2F39" } }, "Confirm remove"), /* @__PURE__ */ React.createElement("button", { onClick: () => setConfirmDeleteId(null), style: secondaryBtnStyle }, "Cancel")) : /* @__PURE__ */ React.createElement("button", { onClick: () => setConfirmDeleteId(sp.id), style: { ...secondaryBtnStyle, color: "#7A7568" } }, "Remove"))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h3", { style: sectionLabelStyle }, "Event history"), sp.events.length === 0 ? /* @__PURE__ */ React.createElement("p", { style: { fontSize: "13px", color: "#7A7568", margin: 0 } }, "No events logged yet.") : [...sp.events].sort((a, b) => (b.date || "").localeCompare(a.date || "")).map((ev, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { padding: "8px 0", borderTop: i === 0 ? "none" : "1px solid #EAE4D6" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "8px" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "14px", fontWeight: 500 } }, ev.event || "Untitled event"), /* @__PURE__ */ React.createElement(Badge, { status: ev.status || "Prospect" })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "12px", color: "#7A7568", marginTop: "2px" } }, ev.date || "No date", ev.session ? ` \xB7 ${ev.session}` : ""))))), isOpen && /* @__PURE__ */ React.createElement("div", { style: { padding: "0 4px 22px" } }, /* @__PURE__ */ React.createElement(OutreachLog, { speaker: sp, team, onLog: onLogOutreach })));
     }));
   }
   function OutreachLog({ speaker, team, onLog }) {
@@ -1317,6 +1345,19 @@
   }
   function ModalShell({ onCancel, title, children }) {
     return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: "rgba(30,42,50,0.45)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "5vh 16px", overflowY: "auto", zIndex: 50 }, onClick: onCancel }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { background: "#F3EEE4", borderRadius: "4px", width: "100%", maxWidth: "560px", padding: "26px", fontFamily: "Inter, sans-serif" } }, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "Fraunces, serif", fontSize: "22px", fontWeight: 600, margin: "0 0 18px" } }, title), children));
+  }
+  function ConfirmStatusModal({ speaker, saving, onCancel, onConfirm, onEditFirst }) {
+    const hasTitle = !!(speaker.title && speaker.title.trim());
+    const hasBio = !!(speaker.bio && speaker.bio.trim());
+    return /* @__PURE__ */ React.createElement(ModalShell, { onCancel, title: "Move to Confirmed?" }, /* @__PURE__ */ React.createElement("p", { style: { fontSize: "14px", lineHeight: 1.5, margin: "0 0 16px" } }, "You're about to mark ", /* @__PURE__ */ React.createElement("strong", null, speaker.name), " as ", /* @__PURE__ */ React.createElement("strong", null, "Confirmed"), ". Is that what you meant to do? Before continuing, double-check that their name, title, and bio are accurate and okay to make public."), /* @__PURE__ */ React.createElement("div", { style: { border: "1px solid #D8D0BE", borderRadius: "3px", padding: "14px", background: "#FBF9F4" } }, /* @__PURE__ */ React.createElement("p", { style: { margin: "0 0 8px", fontSize: "12px", fontWeight: 600, color: "#7A7568" } }, "NAME"), /* @__PURE__ */ React.createElement("p", { style: { margin: "0 0 14px", fontSize: "15px", fontFamily: "Fraunces, serif" } }, speaker.name || "\u2014"), /* @__PURE__ */ React.createElement("p", { style: { margin: "0 0 8px", fontSize: "12px", fontWeight: 600, color: "#7A7568" } }, "TITLE"), /* @__PURE__ */ React.createElement("p", { style: { margin: "0 0 14px", fontSize: "14px", color: hasTitle ? "#1E2A32" : "#A13E2A" } }, hasTitle ? speaker.title : "No title on file"), /* @__PURE__ */ React.createElement("p", { style: { margin: "0 0 8px", fontSize: "12px", fontWeight: 600, color: "#7A7568" } }, "BIO"), /* @__PURE__ */ React.createElement("p", { style: { margin: 0, fontSize: "13px", lineHeight: 1.5, color: hasBio ? "#1E2A32" : "#A13E2A" } }, hasBio ? speaker.bio : "No bio on file")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "20px" } }, /* @__PURE__ */ React.createElement("button", { onClick: onEditFirst, style: secondaryBtnStyle }, "Edit details first"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "10px" } }, /* @__PURE__ */ React.createElement("button", { onClick: onCancel, style: secondaryBtnStyle }, "Cancel"), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: onConfirm,
+        disabled: saving,
+        style: { background: "#4B6B4F", color: "#F3EEE4", border: "none", borderRadius: "3px", padding: "10px 18px", fontSize: "14px", fontWeight: 600, cursor: "pointer", fontFamily: "Inter, sans-serif" }
+      },
+      saving ? "Saving\u2026" : "Yes, this is correct \u2014 confirm"
+    ))));
   }
   function SlackSettingsModal({ webhooks, onAdd, onRemove, onClose }) {
     const [label, setLabel] = useState("");
