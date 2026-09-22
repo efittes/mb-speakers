@@ -82,6 +82,7 @@
     Past: { color: "#5C6470", bg: "#E6E5DC", label: "Past" }
   };
   const STATUS_ORDER = ["Prospect", "Invited", "Confirmed", "Declined", "Past"];
+  const US_STATES = ["Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware", "Florida", "Georgia", "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey", "New Mexico", "New York", "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota", "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming", "District of Columbia"];
   const EVENT_OPTIONS = [
     { label: "2021 Fall Summit", date: "2021-11-01" },
     { label: "2022 June Summit", date: "2022-06-01" },
@@ -271,7 +272,14 @@
     return best ? best.event : "";
   }
   function emptySpeaker() {
-    return { id: uid(), name: "", title: "", photo: "", email: "", phone: "", bio: "", topics: "", status: "Prospect", district: "", events: [], outreachLog: [] };
+    return { id: uid(), name: "", title: "", photo: "", email: "", phone: "", bio: "", topics: "", status: "Prospect", district: "", state: "", organization: "", events: [], outreachLog: [] };
+  }
+  function affiliationLabel(sp) {
+    const parts = [];
+    if (sp.district) parts.push(sp.state ? `${sp.district}, ${sp.state}` : sp.district);
+    else if (sp.state) parts.push(sp.state);
+    if (sp.organization) parts.push(sp.organization);
+    return parts.join(" \u2014 ");
   }
   function emptyDistrict() {
     return { id: uid(), name: "", contactPerson: "", contactEmail: "", lastContactedDate: "", notes: "" };
@@ -397,6 +405,7 @@
     const [statusFilter, setStatusFilter] = useState("All");
     const [groupBySession, setGroupBySession] = useState(false);
     const [speakerSort, setSpeakerSort] = useState("name");
+    const [affiliationFilter, setAffiliationFilter] = useState("all");
     const [expandedId, setExpandedId] = useState(null);
     const [editingSpeaker, setEditingSpeaker] = useState(null);
     const [pendingConfirm, setPendingConfirm] = useState(null);
@@ -653,7 +662,9 @@
           bio: r.bio || "",
           topics: r.topics || "",
           status: r.status || "Prospect",
+          state: r.state || "",
           district: r.district || "",
+          organization: r.organization || "",
           events: r.events || [],
           outreachLog: [],
           confirmedDate: (r.status || "Prospect") === "Confirmed" ? todayISO() : void 0
@@ -709,18 +720,24 @@
     async function logContactToday(ds) {
       await saveDistrict({ ...ds, lastContactedDate: todayISO() });
     }
+    const availableStates = useMemo(() => {
+      const set = /* @__PURE__ */ new Set();
+      speakers.forEach((sp) => { if (sp.state) set.add(sp.state); });
+      return Array.from(set).sort();
+    }, [speakers]);
     const filteredSpeakers = useMemo(() => {
       const q = query.trim().toLowerCase();
       const matches = speakers.filter((sp) => {
-        const matchesQuery = !q || sp.name.toLowerCase().includes(q) || sp.topics.toLowerCase().includes(q) || (sp.title || "").toLowerCase().includes(q) || (sp.district || "").toLowerCase().includes(q) || sp.events.some((e) => (e.event || "").toLowerCase().includes(q));
+        const matchesQuery = !q || sp.name.toLowerCase().includes(q) || sp.topics.toLowerCase().includes(q) || (sp.title || "").toLowerCase().includes(q) || (sp.district || "").toLowerCase().includes(q) || (sp.state || "").toLowerCase().includes(q) || (sp.organization || "").toLowerCase().includes(q) || sp.events.some((e) => (e.event || "").toLowerCase().includes(q));
         const matchesStatus = statusFilter === "All" || sp.status === statusFilter;
-        return matchesQuery && matchesStatus;
+        const matchesAffiliation = affiliationFilter === "all" ? true : affiliationFilter === "district-only" ? !!sp.district : affiliationFilter === "organization-only" ? !!sp.organization : affiliationFilter.startsWith("state:") ? sp.state === affiliationFilter.slice(6) : true;
+        return matchesQuery && matchesStatus && matchesAffiliation;
       });
       if (speakerSort !== "name") {
         return matches.filter((sp) => (sp.events || []).some((e) => e.event === speakerSort)).sort((a, b) => a.name.localeCompare(b.name));
       }
       return matches;
-    }, [speakers, query, statusFilter, speakerSort]);
+    }, [speakers, query, statusFilter, speakerSort, affiliationFilter]);
     const speakerCounts = useMemo(() => {
       const c = { All: speakers.length, Prospect: 0, Invited: 0, Confirmed: 0, Declined: 0 };
       speakers.forEach((sp) => {
@@ -735,7 +752,7 @@
     const filteredRecruitment = useMemo(() => {
       const q = query.trim().toLowerCase();
       return recruitmentSpeakers.filter((sp) => {
-        const matchesQuery = !q || sp.name.toLowerCase().includes(q) || sp.topics.toLowerCase().includes(q) || (sp.title || "").toLowerCase().includes(q) || (sp.district || "").toLowerCase().includes(q) || sp.events.some((e) => (e.event || "").toLowerCase().includes(q));
+        const matchesQuery = !q || sp.name.toLowerCase().includes(q) || sp.topics.toLowerCase().includes(q) || (sp.title || "").toLowerCase().includes(q) || (sp.district || "").toLowerCase().includes(q) || (sp.state || "").toLowerCase().includes(q) || (sp.organization || "").toLowerCase().includes(q) || sp.events.some((e) => (e.event || "").toLowerCase().includes(q));
         const matchesStatus = statusFilter === "All" ? true : statusFilter === NEW_SINCE_REPORT ? sp.status === "Confirmed" && sp.confirmedDate && (!lastReportedDate || sp.confirmedDate > lastReportedDate) : sp.status === statusFilter;
         return matchesQuery && matchesStatus;
       });
@@ -872,7 +889,7 @@
           row[EVENTS_TEAM_HEADERS[4]] = sp.bio;
           row[EVENTS_TEAM_HEADERS[5]] = sessionTitle;
           row[EVENTS_TEAM_HEADERS[6]] = touch ? touch.by : "";
-          row[EVENTS_TEAM_HEADERS[8]] = sp.district;
+          row[EVENTS_TEAM_HEADERS[8]] = sp.district || sp.organization || "";
           return row;
         });
         const wb2 = XLSX.utils.book_new();
@@ -889,7 +906,9 @@
         Phone: sp.phone,
         Topics: sp.topics,
         Status: sp.status,
-        "State / District": sp.district,
+        State: sp.state || "",
+        District: sp.district || "",
+        "Company / Organization": sp.organization || "",
         Bio: sp.bio,
         "Event History": sp.events.map((e) => `${e.event || "Untitled"} (${e.date || "no date"}, ${e.status || ""})`).join("; "),
         "Outreach Log": (sp.outreachLog || []).map((e) => `${e.date} \u2014 ${e.by}${e.note ? `: ${e.note}` : ""}`).join("; ")
@@ -957,6 +976,17 @@
       },
       /* @__PURE__ */ React.createElement("option", { value: "name" }, "Name (A\u2013Z)"),
       EVENT_DROPDOWN_OPTIONS.map((o) => /* @__PURE__ */ React.createElement("option", { key: o.label, value: o.label }, o.label))
+    ), /* @__PURE__ */ React.createElement("label", { style: { fontSize: "13px", color: "#7A7568", fontFamily: "Inter, sans-serif", marginLeft: "14px" } }, "Filter by"), /* @__PURE__ */ React.createElement(
+      "select",
+      {
+        value: affiliationFilter,
+        onChange: (e) => setAffiliationFilter(e.target.value),
+        style: { border: "1px solid #D8D0BE", background: "#FBF9F4", color: "#1E2A32", borderRadius: "3px", padding: "7px 10px", fontSize: "13px", fontFamily: "Inter, sans-serif", cursor: "pointer" }
+      },
+      /* @__PURE__ */ React.createElement("option", { value: "all" }, "All affiliations"),
+      /* @__PURE__ */ React.createElement("option", { value: "district-only" }, "School district speakers only"),
+      /* @__PURE__ */ React.createElement("option", { value: "organization-only" }, "Organization / company speakers only"),
+      availableStates.length > 0 && /* @__PURE__ */ React.createElement("optgroup", { label: "By state" }, availableStates.map((s) => /* @__PURE__ */ React.createElement("option", { key: s, value: `state:${s}` }, s)))
     )), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement(
       "input",
       {
@@ -1170,7 +1200,7 @@
       const daysSinceTouch = lastTouch ? daysSince(lastTouch.date) : null;
       const isStale = flagStaleOutreach && sp.status !== "Confirmed" && sp.status !== "Declined" && (!lastTouch || daysSinceTouch !== null && daysSinceTouch > RECRUITMENT_STALE_OUTREACH_DAYS);
       const showNeedsOutreachBadge = isStale && sp.status === "Invited";
-      return /* @__PURE__ */ React.createElement("div", { key: sp.id, style: { borderBottom: "1px solid #D8D0BE" } }, /* @__PURE__ */ React.createElement("div", { onClick: () => setExpandedId(isOpen ? null : sp.id), style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 4px", cursor: "pointer", gap: "12px" } }, /* @__PURE__ */ React.createElement(Avatar, { photo: sp.photo, name: sp.name }), /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0, flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: "10px", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "Fraunces, serif", fontSize: "18px", fontWeight: 500 } }, sp.name || "Untitled speaker"), /* @__PURE__ */ React.createElement(StatusSelect, { status: sp.status, onChange: (val) => onChangeStatus(sp.id, val) }), sp.district && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "12px", color: "#7A7568" } }, sp.district), showNeedsOutreachBadge && /* @__PURE__ */ React.createElement("span", { style: { color: "#F3EEE4", background: "#A13E2A", fontFamily: "Inter, sans-serif", fontSize: "11px", fontWeight: 700, padding: "2px 8px", borderRadius: "3px", letterSpacing: "0.02em", whiteSpace: "nowrap" } }, "\u26A0 Needs outreach")), sp.title && /* @__PURE__ */ React.createElement("p", { style: { margin: "2px 0 0", fontSize: "13px", color: "#1E2A32" } }, sp.title), sp.topics && /* @__PURE__ */ React.createElement("p", { style: { margin: "3px 0 0", fontSize: "13px", color: "#7A7568", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, sp.topics), /* @__PURE__ */ React.createElement("p", { style: { margin: "3px 0 0", fontSize: "12px", color: isStale ? "#A13E2A" : lastTouch ? "#4B6B4F" : "#A39C8A", fontWeight: isStale ? 600 : 400 } }, lastTouch ? `Last outreach: ${lastTouch.date} by ${lastTouch.by}${lastTouch.note ? ` \u2014 ${lastTouch.note}` : ""}` : "No outreach logged yet", isStale && lastTouch && ` (${daysSinceTouch} days ago)`)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "13px", color: "#7A7568", flexShrink: 0 } }, sp.events.length, " ", sp.events.length === 1 ? "event" : "events"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "18px", color: "#7A7568", flexShrink: 0, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s" } }, "\u203A")), isOpen && /* @__PURE__ */ React.createElement("div", { style: { padding: "0 4px 22px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(Avatar, { photo: sp.photo, name: sp.name, size: 72 }), /* @__PURE__ */ React.createElement("h3", { style: { ...sectionLabelStyle, marginTop: "16px" } }, "Contact"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "14px", margin: "0 0 4px" } }, sp.email || "\u2014"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "14px", margin: 0, color: "#7A7568" } }, sp.phone || ""), /* @__PURE__ */ React.createElement("h3", { style: { ...sectionLabelStyle, marginTop: "16px" } }, "Title"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "14px", margin: 0 } }, sp.title || "\u2014"), /* @__PURE__ */ React.createElement("h3", { style: { ...sectionLabelStyle, marginTop: "16px" } }, "State / District"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "14px", margin: 0 } }, sp.district || "\u2014"), /* @__PURE__ */ React.createElement("h3", { style: { ...sectionLabelStyle, marginTop: "16px" } }, "Bio"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "14px", margin: 0, lineHeight: 1.5, whiteSpace: "pre-wrap" } }, sp.bio || "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "16px", display: "flex", gap: "10px" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => onEdit(sp), style: secondaryBtnStyle }, "Edit"), confirmDeleteId === sp.id ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: () => onDelete(sp.id), style: { ...secondaryBtnStyle, color: "#8C2F39", borderColor: "#8C2F39" } }, "Confirm remove"), /* @__PURE__ */ React.createElement("button", { onClick: () => setConfirmDeleteId(null), style: secondaryBtnStyle }, "Cancel")) : /* @__PURE__ */ React.createElement("button", { onClick: () => setConfirmDeleteId(sp.id), style: { ...secondaryBtnStyle, color: "#7A7568" } }, "Remove"))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h3", { style: sectionLabelStyle }, "Event history"), sp.events.length === 0 ? /* @__PURE__ */ React.createElement("p", { style: { fontSize: "13px", color: "#7A7568", margin: 0 } }, "No events logged yet.") : [...sp.events].sort((a, b) => (b.date || "").localeCompare(a.date || "")).map((ev, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { padding: "8px 0", borderTop: i === 0 ? "none" : "1px solid #EAE4D6" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "8px" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "14px", fontWeight: 500 } }, ev.event || "Untitled event"), /* @__PURE__ */ React.createElement(Badge, { status: ev.status || "Prospect" })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "12px", color: "#7A7568", marginTop: "2px" } }, ev.date || "No date", ev.session ? ` \xB7 ${ev.session}` : ""))))), isOpen && /* @__PURE__ */ React.createElement("div", { style: { padding: "0 4px 22px" } }, /* @__PURE__ */ React.createElement(OutreachLog, { speaker: sp, team, onLog: onLogOutreach })));
+      return /* @__PURE__ */ React.createElement("div", { key: sp.id, style: { borderBottom: "1px solid #D8D0BE" } }, /* @__PURE__ */ React.createElement("div", { onClick: () => setExpandedId(isOpen ? null : sp.id), style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 4px", cursor: "pointer", gap: "12px" } }, /* @__PURE__ */ React.createElement(Avatar, { photo: sp.photo, name: sp.name }), /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0, flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: "10px", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "Fraunces, serif", fontSize: "18px", fontWeight: 500 } }, sp.name || "Untitled speaker"), /* @__PURE__ */ React.createElement(StatusSelect, { status: sp.status, onChange: (val) => onChangeStatus(sp.id, val) }), affiliationLabel(sp) && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "12px", color: "#7A7568" } }, affiliationLabel(sp)), showNeedsOutreachBadge && /* @__PURE__ */ React.createElement("span", { style: { color: "#F3EEE4", background: "#A13E2A", fontFamily: "Inter, sans-serif", fontSize: "11px", fontWeight: 700, padding: "2px 8px", borderRadius: "3px", letterSpacing: "0.02em", whiteSpace: "nowrap" } }, "\u26A0 Needs outreach")), sp.title && /* @__PURE__ */ React.createElement("p", { style: { margin: "2px 0 0", fontSize: "13px", color: "#1E2A32" } }, sp.title), sp.topics && /* @__PURE__ */ React.createElement("p", { style: { margin: "3px 0 0", fontSize: "13px", color: "#7A7568", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, sp.topics), /* @__PURE__ */ React.createElement("p", { style: { margin: "3px 0 0", fontSize: "12px", color: isStale ? "#A13E2A" : lastTouch ? "#4B6B4F" : "#A39C8A", fontWeight: isStale ? 600 : 400 } }, lastTouch ? `Last outreach: ${lastTouch.date} by ${lastTouch.by}${lastTouch.note ? ` \u2014 ${lastTouch.note}` : ""}` : "No outreach logged yet", isStale && lastTouch && ` (${daysSinceTouch} days ago)`)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "13px", color: "#7A7568", flexShrink: 0 } }, sp.events.length, " ", sp.events.length === 1 ? "event" : "events"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "18px", color: "#7A7568", flexShrink: 0, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s" } }, "\u203A")), isOpen && /* @__PURE__ */ React.createElement("div", { style: { padding: "0 4px 22px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(Avatar, { photo: sp.photo, name: sp.name, size: 72 }), /* @__PURE__ */ React.createElement("h3", { style: { ...sectionLabelStyle, marginTop: "16px" } }, "Contact"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "14px", margin: "0 0 4px" } }, sp.email || "\u2014"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "14px", margin: 0, color: "#7A7568" } }, sp.phone || ""), /* @__PURE__ */ React.createElement("h3", { style: { ...sectionLabelStyle, marginTop: "16px" } }, "Title"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "14px", margin: 0 } }, sp.title || "\u2014"), /* @__PURE__ */ React.createElement("h3", { style: { ...sectionLabelStyle, marginTop: "16px" } }, "State"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "14px", margin: 0 } }, sp.state || "\u2014"), /* @__PURE__ */ React.createElement("h3", { style: { ...sectionLabelStyle, marginTop: "16px" } }, "District"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "14px", margin: 0 } }, sp.district || "\u2014"), /* @__PURE__ */ React.createElement("h3", { style: { ...sectionLabelStyle, marginTop: "16px" } }, "Company / Organization"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "14px", margin: 0 } }, sp.organization || "\u2014"), /* @__PURE__ */ React.createElement("h3", { style: { ...sectionLabelStyle, marginTop: "16px" } }, "Bio"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "14px", margin: 0, lineHeight: 1.5, whiteSpace: "pre-wrap" } }, sp.bio || "\u2014"), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "16px", display: "flex", gap: "10px" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => onEdit(sp), style: secondaryBtnStyle }, "Edit"), confirmDeleteId === sp.id ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: () => onDelete(sp.id), style: { ...secondaryBtnStyle, color: "#8C2F39", borderColor: "#8C2F39" } }, "Confirm remove"), /* @__PURE__ */ React.createElement("button", { onClick: () => setConfirmDeleteId(null), style: secondaryBtnStyle }, "Cancel")) : /* @__PURE__ */ React.createElement("button", { onClick: () => setConfirmDeleteId(sp.id), style: { ...secondaryBtnStyle, color: "#7A7568" } }, "Remove"))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h3", { style: sectionLabelStyle }, "Event history"), sp.events.length === 0 ? /* @__PURE__ */ React.createElement("p", { style: { fontSize: "13px", color: "#7A7568", margin: 0 } }, "No events logged yet.") : [...sp.events].sort((a, b) => (b.date || "").localeCompare(a.date || "")).map((ev, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { padding: "8px 0", borderTop: i === 0 ? "none" : "1px solid #EAE4D6" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "8px" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "14px", fontWeight: 500 } }, ev.event || "Untitled event"), /* @__PURE__ */ React.createElement(Badge, { status: ev.status || "Prospect" })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "12px", color: "#7A7568", marginTop: "2px" } }, ev.date || "No date", ev.session ? ` \xB7 ${ev.session}` : ""))))), isOpen && /* @__PURE__ */ React.createElement("div", { style: { padding: "0 4px 22px" } }, /* @__PURE__ */ React.createElement(OutreachLog, { speaker: sp, team, onLog: onLogOutreach })));
     }));
   }
   function OutreachLog({ speaker, team, onLog }) {
@@ -1461,11 +1491,17 @@
     const [form, setForm] = useState(speaker);
     const [photoError, setPhotoError] = useState(null);
     const [photoLoading, setPhotoLoading] = useState(false);
+    const [overrideDuplicate, setOverrideDuplicate] = useState(false);
     const sessionOptions = useMemo(() => {
       const set = /* @__PURE__ */ new Set();
       (speakers || []).forEach((sp) => (sp.events || []).forEach((e) => {
         if (e.session) set.add(e.session);
       }));
+      return Array.from(set).sort();
+    }, [speakers]);
+    const organizationOptions = useMemo(() => {
+      const set = /* @__PURE__ */ new Set();
+      (speakers || []).forEach((sp) => { if (sp.organization) set.add(sp.organization); });
       return Array.from(set).sort();
     }, [speakers]);
     function update(field, value) {
@@ -1517,7 +1553,8 @@
       if (!trimmed) return null;
       return (speakers || []).find((sp) => sp.id !== speaker.id && sp.name.trim().toLowerCase() === trimmed) || null;
     }, [form.name, speakers, speaker.id]);
-    const canSave = form.name.trim().length > 0 && !duplicateMatch;
+    useEffect(() => { if (!duplicateMatch) setOverrideDuplicate(false); }, [duplicateMatch]);
+    const canSave = form.name.trim().length > 0 && (!duplicateMatch || overrideDuplicate);
     return /* @__PURE__ */ React.createElement(ModalShell, { onCancel, title: speaker.name ? "Edit speaker" : "Add speaker" }, /* @__PURE__ */ React.createElement("label", { style: labelStyle }, "Name"), /* @__PURE__ */ React.createElement(
       "input",
       {
@@ -1526,7 +1563,7 @@
         onChange: (e) => update("name", e.target.value),
         placeholder: "Full name"
       }
-    ), duplicateMatch && /* @__PURE__ */ React.createElement("p", { style: { fontSize: "12px", color: "#8C2F39", margin: "6px 0 0" } }, '"', duplicateMatch.name, '" is already in your roster (status: ', duplicateMatch.status, "). Edit that entry instead of adding a duplicate."), /* @__PURE__ */ React.createElement("label", { style: { ...labelStyle, marginTop: "12px" } }, "Title"), /* @__PURE__ */ React.createElement("input", { style: inputStyle(), value: form.title || "", onChange: (e) => update("title", e.target.value), placeholder: "e.g. Superintendent, Austin ISD" }), /* @__PURE__ */ React.createElement("label", { style: { ...labelStyle, marginTop: "12px" } }, "Photo"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "10px", alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement(Avatar, { photo: form.photo, name: form.name, size: 44 }), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement(
+    ), duplicateMatch && /* @__PURE__ */ React.createElement("div", { style: { margin: "6px 0 0" } }, /* @__PURE__ */ React.createElement("p", { style: { fontSize: "12px", color: "#8C2F39", margin: "0 0 6px" } }, '"', duplicateMatch.name, '" is already in your roster (status: ', duplicateMatch.status, ")."), /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "#1E2A32", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: overrideDuplicate, onChange: (e) => setOverrideDuplicate(e.target.checked) }), "This is a different person with the same name \u2014 save anyway")), /* @__PURE__ */ React.createElement("label", { style: { ...labelStyle, marginTop: "12px" } }, "Title"), /* @__PURE__ */ React.createElement("input", { style: inputStyle(), value: form.title || "", onChange: (e) => update("title", e.target.value), placeholder: "e.g. Superintendent, Austin ISD" }), /* @__PURE__ */ React.createElement("label", { style: { ...labelStyle, marginTop: "12px" } }, "Photo"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "10px", alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement(Avatar, { photo: form.photo, name: form.name, size: 44 }), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement(
       "label",
       {
         style: {
@@ -1546,7 +1583,7 @@
         onChange: (e) => update("photo", e.target.value),
         placeholder: "https://\u2026/photo.jpg"
       }
-    ), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "11px", color: "#A39C8A", margin: "4px 0 0" } }, "Some image hosts won't load this way in this app \u2014 uploading the file above is more reliable.")))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginTop: "12px" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: labelStyle }, "Email"), /* @__PURE__ */ React.createElement("input", { style: inputStyle(), value: form.email, onChange: (e) => update("email", e.target.value), placeholder: "name@example.com" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: labelStyle }, "Phone"), /* @__PURE__ */ React.createElement("input", { style: inputStyle(), value: form.phone, onChange: (e) => update("phone", e.target.value), placeholder: "Optional" }))), /* @__PURE__ */ React.createElement("label", { style: { ...labelStyle, marginTop: "12px" } }, "State / District"), /* @__PURE__ */ React.createElement("input", { style: inputStyle(), list: "district-options", value: form.district, onChange: (e) => update("district", e.target.value), placeholder: "e.g. Ohio, or Austin ISD" }), /* @__PURE__ */ React.createElement("datalist", { id: "district-options" }, districts.map((d) => /* @__PURE__ */ React.createElement("option", { key: d.id, value: d.name }))), /* @__PURE__ */ React.createElement("label", { style: { ...labelStyle, marginTop: "12px" } }, "Topics"), /* @__PURE__ */ React.createElement("input", { style: inputStyle(), value: form.topics, onChange: (e) => update("topics", e.target.value), placeholder: "e.g. AI ethics, distributed systems" }), /* @__PURE__ */ React.createElement("label", { style: { ...labelStyle, marginTop: "12px" } }, "Bio"), /* @__PURE__ */ React.createElement("textarea", { style: { ...inputStyle(), minHeight: "70px", resize: "vertical" }, value: form.bio, onChange: (e) => update("bio", e.target.value), placeholder: "Short bio or notes" }), /* @__PURE__ */ React.createElement("label", { style: { ...labelStyle, marginTop: "12px" } }, "Current status"), /* @__PURE__ */ React.createElement("select", { style: inputStyle(), value: form.status, onChange: (e) => update("status", e.target.value) }, STATUS_ORDER.map((s) => /* @__PURE__ */ React.createElement("option", { key: s, value: s }, s))), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "20px", display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("label", { style: labelStyle }, "Event history"), /* @__PURE__ */ React.createElement("button", { onClick: addEvent, style: { ...secondaryBtnStyle, padding: "5px 10px", fontSize: "12px" } }, "+ Add event")), form.events.length === 0 ? /* @__PURE__ */ React.createElement("p", { style: { fontSize: "13px", color: "#7A7568", margin: "6px 0 0" } }, "No events yet.") : form.events.map((ev, i) => {
+    ), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "11px", color: "#A39C8A", margin: "4px 0 0" } }, "Some image hosts won't load this way in this app \u2014 uploading the file above is more reliable.")))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginTop: "12px" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: labelStyle }, "Email"), /* @__PURE__ */ React.createElement("input", { style: inputStyle(), value: form.email, onChange: (e) => update("email", e.target.value), placeholder: "name@example.com" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { style: labelStyle }, "Phone"), /* @__PURE__ */ React.createElement("input", { style: inputStyle(), value: form.phone, onChange: (e) => update("phone", e.target.value), placeholder: "Optional" }))), /* @__PURE__ */ React.createElement("label", { style: { ...labelStyle, marginTop: "12px" } }, "State"), /* @__PURE__ */ React.createElement("input", { style: inputStyle(), list: "state-options", value: form.state || "", onChange: (e) => update("state", e.target.value), placeholder: "e.g. Ohio" }), /* @__PURE__ */ React.createElement("datalist", { id: "state-options" }, US_STATES.map((s) => /* @__PURE__ */ React.createElement("option", { key: s, value: s }))), /* @__PURE__ */ React.createElement("label", { style: { ...labelStyle, marginTop: "12px" } }, "District"), /* @__PURE__ */ React.createElement("input", { style: inputStyle(), list: "district-options", value: form.district, onChange: (e) => update("district", e.target.value), placeholder: "e.g. Austin ISD" }), /* @__PURE__ */ React.createElement("datalist", { id: "district-options" }, districts.map((d) => /* @__PURE__ */ React.createElement("option", { key: d.id, value: d.name }))), /* @__PURE__ */ React.createElement("label", { style: { ...labelStyle, marginTop: "12px" } }, "Company / Organization"), /* @__PURE__ */ React.createElement("input", { style: inputStyle(), list: "organization-options", value: form.organization || "", onChange: (e) => update("organization", e.target.value), placeholder: "e.g. Brighteye Ventures" }), /* @__PURE__ */ React.createElement("datalist", { id: "organization-options" }, organizationOptions.map((o) => /* @__PURE__ */ React.createElement("option", { key: o, value: o }))), /* @__PURE__ */ React.createElement("label", { style: { ...labelStyle, marginTop: "12px" } }, "Topics"), /* @__PURE__ */ React.createElement("input", { style: inputStyle(), value: form.topics, onChange: (e) => update("topics", e.target.value), placeholder: "e.g. AI ethics, distributed systems" }), /* @__PURE__ */ React.createElement("label", { style: { ...labelStyle, marginTop: "12px" } }, "Bio"), /* @__PURE__ */ React.createElement("textarea", { style: { ...inputStyle(), minHeight: "70px", resize: "vertical" }, value: form.bio, onChange: (e) => update("bio", e.target.value), placeholder: "Short bio or notes" }), /* @__PURE__ */ React.createElement("label", { style: { ...labelStyle, marginTop: "12px" } }, "Current status"), /* @__PURE__ */ React.createElement("select", { style: inputStyle(), value: form.status, onChange: (e) => update("status", e.target.value) }, STATUS_ORDER.map((s) => /* @__PURE__ */ React.createElement("option", { key: s, value: s }, s))), /* @__PURE__ */ React.createElement("div", { style: { marginTop: "20px", display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("label", { style: labelStyle }, "Event history"), /* @__PURE__ */ React.createElement("button", { onClick: addEvent, style: { ...secondaryBtnStyle, padding: "5px 10px", fontSize: "12px" } }, "+ Add event")), form.events.length === 0 ? /* @__PURE__ */ React.createElement("p", { style: { fontSize: "13px", color: "#7A7568", margin: "6px 0 0" } }, "No events yet.") : form.events.map((ev, i) => {
       const knownLabels = EVENT_DROPDOWN_OPTIONS.map((o) => o.label);
       const rowOptions = ev.event && !knownLabels.includes(ev.event) ? [{ label: ev.event, date: ev.date }, ...EVENT_DROPDOWN_OPTIONS] : EVENT_DROPDOWN_OPTIONS;
       const fixedSessions = SESSION_OPTIONS_BY_EVENT[ev.event];
@@ -1567,7 +1604,9 @@
     { key: "title", label: "Title", guesses: ["title", "jobtitle", "position", "role"] },
     { key: "email", label: "Email", guesses: ["email", "emailaddress", "speakeremail"] },
     { key: "phone", label: "Phone", guesses: ["phone", "phonenumber", "cell", "mobile"] },
-    { key: "district", label: "District / Organization", guesses: ["district", "organization", "affiliation", "schooldistrict", "company"] },
+    { key: "state", label: "State", guesses: ["state", "usstate", "province"] },
+    { key: "district", label: "District", guesses: ["district", "schooldistrict"] },
+    { key: "organization", label: "Company / Organization", guesses: ["organization", "company", "affiliation", "employer"] },
     { key: "bio", label: "Bio", guesses: ["bio", "biography", "about", "description"] },
     { key: "session", label: "Session / Topic", guesses: ["session", "sessiontitle", "topic", "topics", "talktitle"] }
   ];
@@ -1640,7 +1679,9 @@
           title: bulkClean(row[mapping.title]),
           email: bulkClean(row[mapping.email]),
           phone: bulkClean(row[mapping.phone]),
+          state: bulkClean(row[mapping.state]),
           district: bulkClean(row[mapping.district]),
+          organization: bulkClean(row[mapping.organization]),
           bio: bulkClean(row[mapping.bio]),
           session: bulkClean(row[mapping.session]),
           isDuplicate: name ? existingNamesLower.has(name.toLowerCase()) : false
@@ -1660,7 +1701,9 @@
         title: r.title,
         email: r.email,
         phone: r.phone,
+        state: r.state,
         district: r.district,
+        organization: r.organization,
         bio: r.bio,
         topics: r.session,
         status: targetStatus,
