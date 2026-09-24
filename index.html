@@ -7,6 +7,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <style>
   html, body { margin: 0; padding: 0; background: #F3EEE4; }
   * { box-sizing: border-box; }
@@ -20,6 +21,39 @@
   const SUPABASE_URL = "https://yhaslgnecymqttrqxjqq.supabase.co";
   const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InloYXNsZ25lY3ltcXR0cnF4anFxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNjY1NjYsImV4cCI6MjEwMzk0MjU2Nn0.lBONeGG1jPpcxGbHUiCJW6u5-YG78BFZLzKAIUJZqn0";
   const SUPABASE_TABLE = "roster_storage";
+  const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  async function fetchAllRows(table) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=id,data`, {
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` }
+    });
+    if (!res.ok) throw new Error(`Couldn't load ${table} (status ${res.status}).`);
+    return await res.json();
+  }
+  async function upsertRow(table, id, data) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+      method: "POST",
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        "Content-Type": "application/json",
+        Prefer: "resolution=merge-duplicates"
+      },
+      body: JSON.stringify({ id, data, updated_at: (/* @__PURE__ */ new Date()).toISOString() })
+    });
+    if (!res.ok) {
+      const t = await res.text();
+      throw new Error(`Couldn't save to ${table}: ${t.slice(0, 300)}`);
+    }
+  }
+  async function deleteRow(table, id) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` }
+    });
+    if (!res.ok) throw new Error(`Couldn't delete from ${table} (status ${res.status}).`);
+  }
+
   async function sbStorageGetRaw(key) {
     const url = `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}?key=eq.${encodeURIComponent(key)}&select=value`;
     const res = await fetch(url, {
@@ -416,42 +450,101 @@
     useEffect(() => {
       loadAll();
     }, []);
+    useEffect(() => {
+      const channel = supabaseClient.channel("roster-live-sync").on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "speakers" },
+        (payload) => {
+          if (payload.eventType === "DELETE") {
+            setSpeakers((prev) => prev.filter((sp) => sp.id !== payload.old.id));
+          } else {
+            const record = payload.new.data;
+            setSpeakers((prev) => {
+              const exists = prev.some((sp) => sp.id === record.id);
+              const next = exists ? prev.map((sp) => sp.id === record.id ? record : sp) : [...prev, record];
+              return next.sort((a, b) => a.name.localeCompare(b.name));
+            });
+          }
+        }
+      ).on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "districts" },
+        (payload) => {
+          if (payload.eventType === "DELETE") {
+            setDistricts((prev) => prev.filter((ds) => ds.id !== payload.old.id));
+          } else {
+            const record = payload.new.data;
+            setDistricts((prev) => {
+              const exists = prev.some((ds) => ds.id === record.id);
+              const next = exists ? prev.map((ds) => ds.id === record.id ? record : ds) : [...prev, record];
+              return next.sort((a, b) => a.name.localeCompare(b.name));
+            });
+          }
+        }
+      ).on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "roster_storage" },
+        (payload) => {
+          const row = payload.eventType === "DELETE" ? payload.old : payload.new;
+          if (!row) return;
+          if (row.key === "roster:team") {
+            try { setTeam(JSON.parse(row.value)); } catch (e) {}
+          } else if (row.key === "roster:lastReportedDate") {
+            setLastReportedDate(row.value);
+          } else if (row.key === "roster:slackWebhooks") {
+            try { setSlackWebhooks(JSON.parse(row.value)); } catch (e) {}
+          }
+        }
+      ).subscribe();
+      return () => { supabaseClient.removeChannel(channel); };
+    }, []);
     async function loadAll() {
       setLoading(true);
       setError(null);
       try {
-        const [spResult, dsResult, teamResult, lastReportedResult, slackLegacyResult, slackListResult] = await Promise.all([
-          sbStorage.get("roster:speakers", true).catch(() => null),
-          sbStorage.get("roster:districts", true).catch(() => null),
+        const [spRows, dsRows, teamResult, lastReportedResult, slackLegacyResult, slackListResult] = await Promise.all([
+          fetchAllRows("speakers").catch(() => []),
+          fetchAllRows("districts").catch(() => []),
           sbStorage.get("roster:team", true).catch(() => null),
           sbStorage.get("roster:lastReportedDate", true).catch(() => null),
           sbStorage.get("roster:slackWebhookUrl", true).catch(() => null),
           sbStorage.get("roster:slackWebhooks", true).catch(() => null)
         ]);
-        let spArray = spResult ? JSON.parse(spResult.value) : [];
-        const dsArray = dsResult ? JSON.parse(dsResult.value) : [];
+        let spArray = spRows.map((r) => r.data);
+        let dsArray = dsRows.map((r) => r.data);
+        let migratingFromBlob = false;
+        if (spArray.length === 0) {
+          const legacySp = await sbStorage.get("roster:speakers", true).catch(() => null);
+          if (legacySp) {
+            spArray = JSON.parse(legacySp.value);
+            migratingFromBlob = true;
+          }
+        }
+        if (dsArray.length === 0) {
+          const legacyDs = await sbStorage.get("roster:districts", true).catch(() => null);
+          if (legacyDs) {
+            dsArray = JSON.parse(legacyDs.value);
+            migratingFromBlob = true;
+          }
+        }
         const teamArray = teamResult ? JSON.parse(teamResult.value) : [];
         const lastReportedValue = lastReportedResult ? lastReportedResult.value : null;
         const slackWebhooksList = slackListResult ? JSON.parse(slackListResult.value) : null;
+        const touchedSpeakerIds = /* @__PURE__ */ new Set();
         const EVENT_RENAMES = {
           "EdWeek Leadership Symposium \u2014 June 2025": "2025 June Summit",
           "Market Brief Virtual Summit \u2014 June 2025": "2025 June Summit"
         };
-        let renamed = false;
         spArray = spArray.map((sp) => {
           if (!sp.events || !sp.events.some((e) => EVENT_RENAMES[e.event])) return sp;
-          renamed = true;
+          touchedSpeakerIds.add(sp.id);
           return { ...sp, events: sp.events.map((e) => EVENT_RENAMES[e.event] ? { ...e, event: EVENT_RENAMES[e.event] } : e) };
         });
-        if (renamed) {
-          await sbStorage.set("roster:speakers", JSON.stringify(spArray), true);
-        }
         const RECORRECT_JUNE2025_NAMES = new Set(SEED_SPEAKERS.map((s) => s.name.trim().toLowerCase()));
-        let recorrected = false;
         spArray = spArray.map((sp) => {
           if (!RECORRECT_JUNE2025_NAMES.has(sp.name.trim().toLowerCase())) return sp;
           if (!sp.events || !sp.events.some((e) => e.event === "2025 June Summit")) return sp;
-          recorrected = true;
+          touchedSpeakerIds.add(sp.id);
           return {
             ...sp,
             events: sp.events.map(
@@ -459,61 +552,51 @@
             )
           };
         });
-        if (recorrected) {
-          await sbStorage.set("roster:speakers", JSON.stringify(spArray), true);
-        }
         const existingNamesLower = new Set(spArray.map((sp) => sp.name.trim().toLowerCase()));
         const newJune2025Speakers = SEED_SPEAKERS_2025_JUNE.filter((s) => !existingNamesLower.has(s.name.trim().toLowerCase()));
         if (newJune2025Speakers.length > 0) {
-          spArray = [
-            ...spArray,
-            ...newJune2025Speakers.map((s) => ({
-              id: uid(),
-              name: s.name,
-              title: s.title || "",
-              email: s.email || "",
-              phone: s.phone || "",
-              bio: s.bio || "",
-              topics: s.topics || "",
-              status: s.status || "Past",
-              district: s.district || "",
-              photo: "",
-              events: s.events || [],
-              outreachLog: []
-            }))
-          ];
-          await sbStorage.set("roster:speakers", JSON.stringify(spArray), true);
+          const newRecords = newJune2025Speakers.map((s) => ({
+            id: uid(),
+            name: s.name,
+            title: s.title || "",
+            email: s.email || "",
+            phone: s.phone || "",
+            bio: s.bio || "",
+            topics: s.topics || "",
+            status: s.status || "Past",
+            district: s.district || "",
+            photo: "",
+            events: s.events || [],
+            outreachLog: []
+          }));
+          newRecords.forEach((r) => touchedSpeakerIds.add(r.id));
+          spArray = [...spArray, ...newRecords];
         }
-        let photosAdded = false;
         spArray = spArray.map((sp) => {
           if (sp.photo) return sp;
           const match = SPEAKER_PHOTO_UPDATES[sp.name];
           if (!match) return sp;
-          photosAdded = true;
+          touchedSpeakerIds.add(sp.id);
           return { ...sp, photo: match };
         });
-        if (photosAdded) {
-          await sbStorage.set("roster:speakers", JSON.stringify(spArray), true);
-        }
-        let photosAdded2 = false;
         spArray = spArray.map((sp) => {
           if (sp.photo) return sp;
           const match = SPEAKER_PHOTO_UPDATES_2[sp.name];
           if (!match) return sp;
-          photosAdded2 = true;
+          touchedSpeakerIds.add(sp.id);
           return { ...sp, photo: match };
         });
-        if (photosAdded2) {
-          await sbStorage.set("roster:speakers", JSON.stringify(spArray), true);
-        }
-        let addedEvent = false;
         spArray = spArray.map((sp) => {
           const updated = ensureRecruitmentEvent(sp);
-          if (updated !== sp) addedEvent = true;
+          if (updated !== sp) touchedSpeakerIds.add(sp.id);
           return updated;
         });
-        if (addedEvent) {
-          await sbStorage.set("roster:speakers", JSON.stringify(spArray), true);
+        if (migratingFromBlob) {
+          await Promise.all(spArray.map((sp) => upsertRow("speakers", sp.id, sp).catch(() => null)));
+          await Promise.all(dsArray.map((ds) => upsertRow("districts", ds.id, ds).catch(() => null)));
+        } else if (touchedSpeakerIds.size > 0) {
+          const byId = /* @__PURE__ */ new Map(spArray.map((sp) => [sp.id, sp]));
+          await Promise.all(Array.from(touchedSpeakerIds).map((id) => byId.has(id) ? upsertRow("speakers", id, byId.get(id)).catch(() => null) : null));
         }
         let slackWebhooksFinal = slackWebhooksList;
         const legacyUrl = slackLegacyResult ? (slackLegacyResult.value || "").trim() : "";
@@ -533,12 +616,6 @@
       } finally {
         setLoading(false);
       }
-    }
-    async function persistSpeakers(next) {
-      await sbStorage.set("roster:speakers", JSON.stringify(next), true);
-    }
-    async function persistDistricts(next) {
-      await sbStorage.set("roster:districts", JSON.stringify(next), true);
     }
     async function persistTeam(next) {
       await sbStorage.set("roster:team", JSON.stringify(next), true);
@@ -636,7 +713,7 @@
         }
         const exists = speakers.some((p) => p.id === clean.id);
         const next = (exists ? speakers.map((p) => p.id === clean.id ? clean : p) : [...speakers, clean]).sort((a, b) => a.name.localeCompare(b.name));
-        await persistSpeakers(next);
+        await upsertRow("speakers", clean.id, clean);
         setSpeakers(next);
         setEditingSpeaker(null);
         if (clean.status === "Confirmed" && !wasConfirmed) {
@@ -670,7 +747,7 @@
           confirmedDate: (r.status || "Prospect") === "Confirmed" ? todayISO() : void 0
         }));
         const next = [...speakers, ...toAdd].sort((a, b) => a.name.localeCompare(b.name));
-        await persistSpeakers(next);
+        await Promise.all(toAdd.map((sp) => upsertRow("speakers", sp.id, sp)));
         setSpeakers(next);
         setShowBulkImportModal(false);
         return toAdd.length;
@@ -684,7 +761,7 @@
     async function deleteSpeaker(id) {
       try {
         const next = speakers.filter((p) => p.id !== id);
-        await persistSpeakers(next);
+        await deleteRow("speakers", id);
         setSpeakers(next);
         setConfirmDeleteId(null);
         if (expandedId === id) setExpandedId(null);
@@ -698,7 +775,7 @@
         const clean = { ...ds, name: ds.name.trim() };
         const exists = districts.some((p) => p.id === clean.id);
         const next = (exists ? districts.map((p) => p.id === clean.id ? clean : p) : [...districts, clean]).sort((a, b) => a.name.localeCompare(b.name));
-        await persistDistricts(next);
+        await upsertRow("districts", clean.id, clean);
         setDistricts(next);
         setEditingDistrict(null);
       } catch (e) {
@@ -710,7 +787,7 @@
     async function deleteDistrict(id) {
       try {
         const next = districts.filter((p) => p.id !== id);
-        await persistDistricts(next);
+        await deleteRow("districts", id);
         setDistricts(next);
         setConfirmDeleteId(null);
       } catch (e) {
