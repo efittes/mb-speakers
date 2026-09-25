@@ -514,6 +514,7 @@
       try { localStorage.setItem("mbroster:collapsedSessions", JSON.stringify(Array.from(collapsedSessions))); } catch (e) {}
     }, [collapsedSessions]);
     const [showMoreFilters, setShowMoreFilters] = useState(false);
+    const [searchExpanded, setSearchExpanded] = useState(false);
     function toggleSessionCollapsed(sessionName) {
       setCollapsedSessions((prev) => {
         const next = new Set(prev);
@@ -1174,7 +1175,7 @@
       const filterSuffix = (tab === "speakers" || tab === "recruitment") && statusFilter !== "All" ? `-${filterLabel}` : "";
       XLSX.writeFile(wb, `speaker-roster${filterSuffix}-${todayISO()}.xlsx`);
     }
-    return /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "Inter, sans-serif", background: "#F3EEE4", minHeight: "100%", color: "#1E2A32" } }, /* @__PURE__ */ React.createElement("style", null, FONT_IMPORT), /* @__PURE__ */ React.createElement("div", { style: { borderBottom: "2px solid #1E2A32", padding: "28px 28px 0" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "12px" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h1", { style: { fontFamily: "Fraunces, serif", fontSize: "34px", fontWeight: 600, margin: 0, letterSpacing: "-0.01em" } }, "EdWeek Market Brief Speaker Roster"), /* @__PURE__ */ React.createElement("p", { style: { margin: "4px 0 0", fontSize: "14px", color: "#7A7568" } }, speakers.length, " ", speakers.length === 1 ? "speaker" : "speakers", " \xB7 shared with your team"), /* @__PURE__ */ React.createElement("p", { style: { margin: "4px 0 0", fontSize: "12px", color: "#7A7568" } }, "\u{1F4A1} Just made a change? Refresh the page after a minute or two to make sure you're seeing everyone's latest updates.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "10px" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setShowSettingsModal(true), style: secondaryBtnStyle }, "Settings"), /* @__PURE__ */ React.createElement("button", { onClick: exportToExcel, style: secondaryBtnStyle }, "Export to Excel"), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "Inter, sans-serif", background: "#F3EEE4", minHeight: "100%", color: "#1E2A32" } }, /* @__PURE__ */ React.createElement("style", null, FONT_IMPORT), /* @__PURE__ */ React.createElement("div", { style: { borderBottom: "2px solid #1E2A32", padding: "28px 36px 0" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "12px" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h1", { style: { fontFamily: "Fraunces, serif", fontSize: "34px", fontWeight: 600, margin: 0, letterSpacing: "-0.01em" } }, "EdWeek Market Brief Speaker Roster"), /* @__PURE__ */ React.createElement("p", { style: { margin: "4px 0 0", fontSize: "14px", color: "#7A7568" } }, speakers.length, " ", speakers.length === 1 ? "speaker" : "speakers", " \xB7 shared with your team"), /* @__PURE__ */ React.createElement("p", { style: { margin: "4px 0 0", fontSize: "12px", color: "#7A7568" } }, "\u{1F4A1} Just made a change? Refresh the page after a minute or two to make sure you're seeing everyone's latest updates.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "10px" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setShowSettingsModal(true), style: secondaryBtnStyle }, "Settings"), /* @__PURE__ */ React.createElement("button", { onClick: exportToExcel, style: secondaryBtnStyle }, "Export to Excel"), /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: openAddSpeaker,
@@ -1204,7 +1205,7 @@
         }
       },
       label
-    )))), (tab === "speakers" || tab === "recruitment") && /* @__PURE__ */ React.createElement("div", { style: { padding: "18px 28px 0" } }, tab === "recruitment" && sessionCapacitySummary.totalNeeded > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "6px", marginTop: "10px" } }, /* @__PURE__ */ React.createElement(
+    )))), (tab === "speakers" || tab === "recruitment") && /* @__PURE__ */ React.createElement("div", { style: { padding: "18px 36px 0" } }, tab === "recruitment" && sessionCapacitySummary.totalNeeded > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "6px", marginTop: "10px", marginBottom: "20px", paddingBottom: "16px", borderBottom: "1px solid #D8D0BE" } }, /* @__PURE__ */ React.createElement(
       "span",
       {
         style: {
@@ -1221,7 +1222,7 @@
       " left (of ",
       sessionCapacitySummary.totalNeeded,
       " needed)"
-    ), /* @__PURE__ */ React.createElement(ProgressBar, { percent: sessionCapacitySummary.totalNeeded > 0 ? sessionCapacitySummary.totalConfirmed / sessionCapacitySummary.totalNeeded * 100 : 0, color: pacingColor(sessionCapacitySummary.totalNeeded > 0 ? sessionCapacitySummary.totalConfirmed / sessionCapacitySummary.totalNeeded * 100 : 0, sessionCapacitySummary.targetPercent) }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "12px", color: "#7A7568" } }, Math.round(sessionCapacitySummary.totalConfirmed / sessionCapacitySummary.totalNeeded * 100), "% filled \xB7 target ", Math.round(sessionCapacitySummary.targetPercent), "% by now (", sessionCapacitySummary.daysUntilEvent, " days out)")), tab === "recruitment" && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "6px" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "13px", color: "#7A7568", fontFamily: "Inter, sans-serif" } }, "View"), /* @__PURE__ */ React.createElement(FilterChip, { active: groupBySession, onClick: () => setGroupBySession(true) }, "By session"), /* @__PURE__ */ React.createElement(FilterChip, { active: !groupBySession, onClick: () => setGroupBySession(false) }, "All"))), tab === "speakers" && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "6px", marginBottom: "10px" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "13px", color: "#7A7568", fontFamily: "Inter, sans-serif" } }, "Sort by"), /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement(ProgressBar, { percent: sessionCapacitySummary.totalNeeded > 0 ? sessionCapacitySummary.totalConfirmed / sessionCapacitySummary.totalNeeded * 100 : 0, color: pacingColor(sessionCapacitySummary.totalNeeded > 0 ? sessionCapacitySummary.totalConfirmed / sessionCapacitySummary.totalNeeded * 100 : 0, sessionCapacitySummary.targetPercent) }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "12px", color: "#7A7568" } }, Math.round(sessionCapacitySummary.totalConfirmed / sessionCapacitySummary.totalNeeded * 100), "% filled \xB7 target ", Math.round(sessionCapacitySummary.targetPercent), "% by now (", sessionCapacitySummary.daysUntilEvent, " days out)"))), tab === "speakers" && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "6px", marginBottom: "10px" } }, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "13px", color: "#7A7568", fontFamily: "Inter, sans-serif" } }, "Sort by"), /* @__PURE__ */ React.createElement(
       "select",
       {
         value: speakerSort,
@@ -1241,22 +1242,39 @@
       /* @__PURE__ */ React.createElement("option", { value: "district-only" }, "School district speakers only"),
       /* @__PURE__ */ React.createElement("option", { value: "organization-only" }, "Organization / company speakers only"),
       availableStates.length > 0 && /* @__PURE__ */ React.createElement("optgroup", { label: "By state" }, availableStates.map((s) => /* @__PURE__ */ React.createElement("option", { key: s, value: `state:${s}` }, s)))
-    )), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement(
+    )), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" } }, tab === "recruitment" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("label", { style: { fontSize: "13px", color: "#7A7568", fontFamily: "Inter, sans-serif", marginLeft: "8px" } }, "View"), /* @__PURE__ */ React.createElement(FilterChip, { active: groupBySession, onClick: () => setGroupBySession(true) }, "By session"), /* @__PURE__ */ React.createElement(FilterChip, { active: !groupBySession, onClick: () => setGroupBySession(false) }, "All")), query.trim().length > 0 || searchExpanded ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "4px" } }, /* @__PURE__ */ React.createElement(
       "input",
       {
+        autoFocus: true,
         value: query,
         onChange: (e) => setQuery(e.target.value),
         placeholder: "Search name, topic, state/district\u2026",
         style: { flex: "0 0 200px", padding: "7px 10px", border: "1px solid #D8D0BE", borderRadius: "3px", background: "#FBF9F4", fontSize: "13px", fontFamily: "Inter, sans-serif", outline: "none" }
       }
-    ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" } }, tab === "speakers" ? ["All", ...STATUS_ORDER].map((s) => /* @__PURE__ */ React.createElement(FilterChip, { key: s, active: statusFilter === s, onClick: () => setStatusFilter(s) }, s, " (", speakerCounts[s] || 0, ")")) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(FilterChip, { active: statusFilter === NEW_SINCE_REPORT, onClick: () => setStatusFilter(NEW_SINCE_REPORT) }, "\u{1F195} New since last report (", recruitmentCounts[NEW_SINCE_REPORT] || 0, ")"), /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => { setQuery(""); setSearchExpanded(false); },
+        title: "Close search",
+        style: { background: "none", border: "none", color: "#7A7568", fontSize: "16px", cursor: "pointer", padding: "4px", lineHeight: 1 }
+      },
+      "\xD7"
+    )) : /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => setSearchExpanded(true),
+        title: "Search",
+        style: { background: "#FBF9F4", border: "1px solid #D8D0BE", borderRadius: "3px", padding: "7px 10px", fontSize: "14px", cursor: "pointer", lineHeight: 1 }
+      },
+      "\u{1F50D}"
+    ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" } }, tab === "speakers" ? ["All", ...STATUS_ORDER].map((s) => /* @__PURE__ */ React.createElement(FilterChip, { key: s, active: statusFilter === s, onClick: () => setStatusFilter(s) }, s, " (", speakerCounts[s] || 0, ")")) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => setShowMoreFilters((v) => !v),
         style: { background: "none", border: "none", color: "#7A7568", fontSize: "13px", cursor: "pointer", fontFamily: "Inter, sans-serif", textDecoration: "underline", padding: "6px 4px" }
       },
-      showMoreFilters || RECRUITMENT_STATUSES.includes(statusFilter) ? RECRUITMENT_STATUSES.includes(statusFilter) ? `Filters: ${statusFilter} \u25B4` : "Fewer filters \u25B4" : "More filters \u25BE"
-    ), (showMoreFilters || RECRUITMENT_STATUSES.includes(statusFilter)) && ["All", ...RECRUITMENT_STATUSES].map((s) => /* @__PURE__ */ React.createElement(FilterChip, { key: s, active: statusFilter === s, onClick: () => setStatusFilter(s) }, s, " (", recruitmentCounts[s] || 0, ")")))), tab === "recruitment" && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "10px", marginTop: "10px" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "12px", color: "#7A7568" } }, "Last reported: ", lastReportedDate ? lastReportedDate : "never"), /* @__PURE__ */ React.createElement("button", { onClick: markAsReported, style: { ...secondaryBtnStyle, padding: "5px 10px", fontSize: "12px" } }, "Mark as reported today"))), /* @__PURE__ */ React.createElement("div", { style: { padding: "18px 28px 48px" } }, loading ? /* @__PURE__ */ React.createElement("p", { style: { color: "#7A7568", fontSize: "14px" } }, "Loading\u2026") : tab === "speakers" ? /* @__PURE__ */ React.createElement(
+      showMoreFilters || RECRUITMENT_STATUSES.includes(statusFilter) || statusFilter === NEW_SINCE_REPORT ? RECRUITMENT_STATUSES.includes(statusFilter) ? `Filters: ${statusFilter} \u25B4` : statusFilter === NEW_SINCE_REPORT ? "Filters: \u{1F195} New since last report \u25B4" : "Fewer filters \u25B4" : "More filters \u25BE"
+    ), (showMoreFilters || RECRUITMENT_STATUSES.includes(statusFilter) || statusFilter === NEW_SINCE_REPORT) && ["All", ...RECRUITMENT_STATUSES, NEW_SINCE_REPORT].map((s) => /* @__PURE__ */ React.createElement(FilterChip, { key: s, active: statusFilter === s, onClick: () => setStatusFilter(s) }, s === NEW_SINCE_REPORT ? "\u{1F195} New since last report" : s, " (", recruitmentCounts[s] || 0, ")")))), tab === "recruitment" && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "10px", marginTop: "10px", marginLeft: "8px", width: "100%", flexBasis: "100%" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "12px", color: "#7A7568" } }, "Last reported: ", lastReportedDate ? lastReportedDate : "never"), /* @__PURE__ */ React.createElement("button", { onClick: markAsReported, style: { ...secondaryBtnStyle, padding: "5px 10px", fontSize: "12px" } }, "Mark as reported today"))), /* @__PURE__ */ React.createElement("div", { style: { padding: "18px 36px 48px" } }, loading ? /* @__PURE__ */ React.createElement("p", { style: { color: "#7A7568", fontSize: "14px" } }, "Loading\u2026") : tab === "speakers" ? /* @__PURE__ */ React.createElement(
       SpeakerList,
       {
         speakers: filteredSpeakers,
@@ -1446,7 +1464,7 @@
         },
         "\xD7"
       )
-    ), /* @__PURE__ */ React.createElement("p", { style: { textAlign: "center", fontSize: "12px", color: "#A39C8A", padding: "24px 28px 32px", margin: 0, fontFamily: "Inter, sans-serif" } }, "Created by Emma Kate Fittes for EdWeek Market Brief using Claude, 2026."));
+    ), /* @__PURE__ */ React.createElement("p", { style: { textAlign: "center", fontSize: "12px", color: "#A39C8A", padding: "24px 36px 32px", margin: 0, fontFamily: "Inter, sans-serif" } }, "Created by Emma Kate Fittes for EdWeek Market Brief using Claude, 2026."));
   }
   function FilterChip({ active, onClick, children }) {
     return /* @__PURE__ */ React.createElement(
