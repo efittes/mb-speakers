@@ -379,7 +379,7 @@
     const subject = fillEmailTemplate(template.subject, sp, info);
     const body = fillEmailTemplate(template.body, sp, info);
     const mailto = `mailto:${encodeURIComponent(sp.email || "")}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    window.location.href = mailto;
+    window.open(mailto, "_blank");
   }
   function formatSessionTime(schedule, sessionName) {
     const entry = schedule && schedule[sessionName];
