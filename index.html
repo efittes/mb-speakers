@@ -337,9 +337,9 @@
     return { id: uid(), name: "", contactPerson: "", contactEmail: "", lastContactedDate: "", notes: "" };
   }
   const RECRUITMENT_PACING_MILESTONES = [
-    { days: 90, pct: 25 },
-    { days: 60, pct: 50 },
-    { days: 30, pct: 80 },
+    { days: 90, pct: 10 },
+    { days: 60, pct: 25 },
+    { days: 30, pct: 60 },
     { days: 14, pct: 100 }
   ];
   function expectedFillPercentForDays(daysUntilEvent) {
@@ -486,8 +486,7 @@
     const [lastReportedDate, setLastReportedDate] = useState(null);
     const [slackWebhooks, setSlackWebhooks] = useState([]);
     const [sessionSchedule, setSessionSchedule] = useState({});
-    const [showScheduleModal, setShowScheduleModal] = useState(false);
-    const [showSlackModal, setShowSlackModal] = useState(false);
+    const [showSettingsModal, setShowSettingsModal] = useState(false);
     const [loading, setLoading] = useState(true);
     const [liveSyncStatus, setLiveSyncStatus] = useState("connecting");
     const [realtimeEventCount, setRealtimeEventCount] = useState(0);
@@ -496,7 +495,12 @@
     const [query, setQuery] = useState("");
     const [statusFilter, setStatusFilter] = useState("All");
     const [groupBySession, setGroupBySession] = useState(() => {
-      try { return localStorage.getItem("mbroster:groupBySession") === "true"; } catch (e) { return false; }
+      try {
+        const v = localStorage.getItem("mbroster:groupBySession");
+        return v === null ? true : v === "true";
+      } catch (e) {
+        return true;
+      }
     });
     const [collapsedSessions, setCollapsedSessions] = useState(() => {
       try {
@@ -525,7 +529,6 @@
     const [showBulkImportModal, setShowBulkImportModal] = useState(false);
     const [editingDistrict, setEditingDistrict] = useState(null);
     const [confirmDeleteId, setConfirmDeleteId] = useState(null);
-    const [showTeamModal, setShowTeamModal] = useState(false);
     useEffect(() => {
       loadAll();
     }, []);
@@ -596,7 +599,7 @@
     }, [groupBySession]);
     const anyModalOpenRef = useRef(false);
     useEffect(() => {
-      anyModalOpenRef.current = !!(editingSpeaker || editingDistrict || showBulkImportModal || showTeamModal || showSlackModal || pendingConfirm);
+      anyModalOpenRef.current = !!(editingSpeaker || editingDistrict || showBulkImportModal || showSettingsModal || pendingConfirm);
     });
     useEffect(() => {
       const AUTO_REFRESH_MS = 10 * 60 * 1e3;
@@ -1171,7 +1174,7 @@
       const filterSuffix = (tab === "speakers" || tab === "recruitment") && statusFilter !== "All" ? `-${filterLabel}` : "";
       XLSX.writeFile(wb, `speaker-roster${filterSuffix}-${todayISO()}.xlsx`);
     }
-    return /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "Inter, sans-serif", background: "#F3EEE4", minHeight: "100%", color: "#1E2A32" } }, /* @__PURE__ */ React.createElement("style", null, FONT_IMPORT), /* @__PURE__ */ React.createElement("div", { style: { borderBottom: "2px solid #1E2A32", padding: "28px 28px 0" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "12px" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h1", { style: { fontFamily: "Fraunces, serif", fontSize: "34px", fontWeight: 600, margin: 0, letterSpacing: "-0.01em" } }, "EdWeek Market Brief Speaker Roster"), /* @__PURE__ */ React.createElement("p", { style: { margin: "4px 0 0", fontSize: "14px", color: "#7A7568" } }, speakers.length, " ", speakers.length === 1 ? "speaker" : "speakers", " \xB7 shared with your team"), /* @__PURE__ */ React.createElement("p", { style: { margin: "4px 0 0", fontSize: "12px", color: "#7A7568" } }, "\u{1F4A1} Just made a change? Refresh the page after a minute or two to make sure you're seeing everyone's latest updates.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "10px" } }, /* @__PURE__ */ React.createElement("button", { onClick: exportToExcel, style: secondaryBtnStyle }, "Export to Excel"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowTeamModal(true), style: secondaryBtnStyle }, "Manage team"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowScheduleModal(true), style: secondaryBtnStyle }, "Manage session times"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowSlackModal(true), style: secondaryBtnStyle }, slackWebhooks.length > 0 ? `\u2713 Slack notifications (${slackWebhooks.length})` : "Slack notifications"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowBulkImportModal(true), style: secondaryBtnStyle }, "Bulk add from Excel"), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "Inter, sans-serif", background: "#F3EEE4", minHeight: "100%", color: "#1E2A32" } }, /* @__PURE__ */ React.createElement("style", null, FONT_IMPORT), /* @__PURE__ */ React.createElement("div", { style: { borderBottom: "2px solid #1E2A32", padding: "28px 28px 0" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "12px" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h1", { style: { fontFamily: "Fraunces, serif", fontSize: "34px", fontWeight: 600, margin: 0, letterSpacing: "-0.01em" } }, "EdWeek Market Brief Speaker Roster"), /* @__PURE__ */ React.createElement("p", { style: { margin: "4px 0 0", fontSize: "14px", color: "#7A7568" } }, speakers.length, " ", speakers.length === 1 ? "speaker" : "speakers", " \xB7 shared with your team"), /* @__PURE__ */ React.createElement("p", { style: { margin: "4px 0 0", fontSize: "12px", color: "#7A7568" } }, "\u{1F4A1} Just made a change? Refresh the page after a minute or two to make sure you're seeing everyone's latest updates.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "10px" } }, /* @__PURE__ */ React.createElement("button", { onClick: exportToExcel, style: secondaryBtnStyle }, "Export to Excel"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowSettingsModal(true), style: secondaryBtnStyle }, "Settings"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowBulkImportModal(true), style: secondaryBtnStyle }, "Bulk add from Excel"), /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: openAddSpeaker,
@@ -1229,19 +1232,7 @@
         placeholder: "Search name, topic, state/district\u2026",
         style: { flex: "1 1 240px", padding: "9px 12px", border: "1px solid #D8D0BE", borderRadius: "3px", background: "#FBF9F4", fontSize: "14px", fontFamily: "Inter, sans-serif", outline: "none" }
       }
-    ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap" } }, (tab === "speakers" ? ["All", ...STATUS_ORDER] : ["All", ...RECRUITMENT_STATUSES, NEW_SINCE_REPORT]).map((s) => /* @__PURE__ */ React.createElement(FilterChip, { key: s, active: statusFilter === s, onClick: () => setStatusFilter(s) }, s === NEW_SINCE_REPORT ? "\u{1F195} New since last report" : s, " (", (tab === "speakers" ? speakerCounts : recruitmentCounts)[s] || 0, ")"))), tab === "recruitment" && /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        onClick: () => setGroupBySession((v) => !v),
-        style: {
-          ...secondaryBtnStyle,
-          background: groupBySession ? "#1E2A32" : secondaryBtnStyle.background,
-          color: groupBySession ? "#F3EEE4" : secondaryBtnStyle.color,
-          borderColor: groupBySession ? "#1E2A32" : secondaryBtnStyle.borderColor
-        }
-      },
-      groupBySession ? "\u2713 Grouped by session" : "Group by session"
-    )), tab === "recruitment" && sessionCapacitySummary.totalNeeded > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "6px", marginTop: "10px" } }, /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap" } }, (tab === "speakers" ? ["All", ...STATUS_ORDER] : ["All", ...RECRUITMENT_STATUSES, NEW_SINCE_REPORT]).map((s) => /* @__PURE__ */ React.createElement(FilterChip, { key: s, active: statusFilter === s, onClick: () => setStatusFilter(s) }, s === NEW_SINCE_REPORT ? "\u{1F195} New since last report" : s, " (", (tab === "speakers" ? speakerCounts : recruitmentCounts)[s] || 0, ")"))), tab === "recruitment" && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "6px" } }, /* @__PURE__ */ React.createElement(FilterChip, { active: groupBySession, onClick: () => setGroupBySession(true) }, "By session"), /* @__PURE__ */ React.createElement(FilterChip, { active: !groupBySession, onClick: () => setGroupBySession(false) }, "All"))), tab === "recruitment" && sessionCapacitySummary.totalNeeded > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "6px", marginTop: "10px" } }, /* @__PURE__ */ React.createElement(
       "span",
       {
         style: {
@@ -1401,13 +1392,18 @@
         onCancel: () => setEditingDistrict(null),
         onSave: saveDistrict
       }
-    ), showTeamModal && /* @__PURE__ */ React.createElement(TeamModal, { team, onAdd: addTeamMember, onRemove: removeTeamMember, onClose: () => setShowTeamModal(false) }), showScheduleModal && /* @__PURE__ */ React.createElement(SessionScheduleModal, { schedule: sessionSchedule, onSave: saveSessionSchedule, onClose: () => setShowScheduleModal(false) }), showSlackModal && /* @__PURE__ */ React.createElement(
-      SlackSettingsModal,
+    ), showSettingsModal && /* @__PURE__ */ React.createElement(
+      SettingsModal,
       {
+        team,
+        onAddTeam: addTeamMember,
+        onRemoveTeam: removeTeamMember,
+        schedule: sessionSchedule,
+        onSaveSchedule: saveSessionSchedule,
         webhooks: slackWebhooks,
-        onAdd: addSlackWebhook,
-        onRemove: removeSlackWebhook,
-        onClose: () => setShowSlackModal(false)
+        onAddWebhook: addSlackWebhook,
+        onRemoveWebhook: removeSlackWebhook,
+        onClose: () => setShowSettingsModal(false)
       }
     ), showBulkImportModal && /* @__PURE__ */ React.createElement(
       BulkImportModal,
@@ -1656,6 +1652,29 @@
   function ModalShell({ onCancel, title, children, maxWidth }) {
     return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: "rgba(30,42,50,0.45)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "5vh 16px", overflowY: "auto", zIndex: 50 }, onClick: onCancel }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { background: "#F3EEE4", borderRadius: "4px", width: "100%", maxWidth: maxWidth || "560px", padding: "26px", fontFamily: "Inter, sans-serif" } }, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "Fraunces, serif", fontSize: "22px", fontWeight: 600, margin: "0 0 18px" } }, title), children));
   }
+  function SettingsModal({ team, onAddTeam, onRemoveTeam, schedule, onSaveSchedule, webhooks, onAddWebhook, onRemoveWebhook, onClose }) {
+    const [tab, setTab] = useState("team");
+    const tabs = [
+      { key: "team", label: "Team" },
+      { key: "sessions", label: "Session Times" },
+      { key: "slack", label: "Slack" }
+    ];
+    function tabButtonStyle(isActive) {
+      return {
+        background: "none",
+        border: "none",
+        borderBottom: isActive ? "2px solid #8C2F39" : "2px solid transparent",
+        color: isActive ? "#1E2A32" : "#7A7568",
+        fontWeight: isActive ? 600 : 500,
+        fontSize: "14px",
+        padding: "8px 4px",
+        marginRight: "20px",
+        cursor: "pointer",
+        fontFamily: "Inter, sans-serif"
+      };
+    }
+    return /* @__PURE__ */ React.createElement(ModalShell, { onCancel: onClose, title: "Settings", maxWidth: "760px" }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", borderBottom: "1px solid #D8D0BE", marginBottom: "18px" } }, tabs.map((t) => /* @__PURE__ */ React.createElement("button", { key: t.key, onClick: () => setTab(t.key), style: tabButtonStyle(tab === t.key) }, t.label))), tab === "team" && /* @__PURE__ */ React.createElement(TeamModal, { team, onAdd: onAddTeam, onRemove: onRemoveTeam, onClose, bare: true }), tab === "sessions" && /* @__PURE__ */ React.createElement(SessionScheduleModal, { schedule, onSave: onSaveSchedule, onClose, bare: true }), tab === "slack" && /* @__PURE__ */ React.createElement(SlackSettingsModal, { webhooks, onAdd: onAddWebhook, onRemove: onRemoveWebhook, onClose, bare: true }));
+  }
   function ConfirmStatusModal({ speaker, saving, onCancel, onConfirm, onEditFirst }) {
     const hasTitle = !!(speaker.title && speaker.title.trim());
     const hasBio = !!(speaker.bio && speaker.bio.trim());
@@ -1669,7 +1688,7 @@
       saving ? "Saving\u2026" : "Yes, this is correct \u2014 confirm"
     ))));
   }
-  function SlackSettingsModal({ webhooks, onAdd, onRemove, onClose }) {
+  function SlackSettingsModal({ webhooks, onAdd, onRemove, onClose, bare }) {
     const [label, setLabel] = useState("");
     const [url, setUrl] = useState("");
     const [adding, setAdding] = useState(false);
@@ -1696,7 +1715,9 @@
         setTestingId(null);
       }
     }
-    return /* @__PURE__ */ React.createElement(ModalShell, { onCancel: onClose, title: "Slack notifications" }, /* @__PURE__ */ React.createElement("p", { style: { fontSize: "14px", lineHeight: 1.5, margin: "0 0 14px" } }, "Add one or more Slack Incoming Webhook URLs. Whenever a Current Recruitment speaker is marked Confirmed, a message posts to every channel below \u2014 add your own anytime without affecting anyone else's."), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "12px", color: "#7A7568", lineHeight: 1.5, margin: "0 0 16px" } }, "In Slack: go to ", /* @__PURE__ */ React.createElement("strong", null, "api.slack.com/apps"), " \u2192 create or open an app \u2192 ", /* @__PURE__ */ React.createElement("strong", null, "Incoming Webhooks"), " \u2192 turn it on \u2192 ", /* @__PURE__ */ React.createElement("strong", null, "Add New Webhook to Workspace"), " \u2192 pick a channel \u2192 copy the URL it gives you."), webhooks.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "18px" } }, webhooks.map((w) => /* @__PURE__ */ React.createElement("div", { key: w.id, style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", padding: "10px 12px", border: "1px solid #D8D0BE", borderRadius: "3px", marginBottom: "8px", background: "#FBF9F4" } }, /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "13px", fontWeight: 600 } }, w.label), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "12px", color: "#7A7568", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, w.url)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "8px", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("button", { onClick: () => handleTest(w), disabled: testingId === w.id, style: { ...secondaryBtnStyle, padding: "5px 10px", fontSize: "12px" } }, testingId === w.id ? "Sending\u2026" : testedId === w.id ? "Sent \u2713" : "Test"), /* @__PURE__ */ React.createElement("button", { onClick: () => onRemove(w.id), style: { background: "none", border: "none", color: "#8C2F39", fontSize: "12px", cursor: "pointer", fontFamily: "Inter, sans-serif", textDecoration: "underline" } }, "Remove"))))), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "13px", fontWeight: 600, margin: "0 0 8px", color: "#1E2A32" } }, webhooks.length > 0 ? "Add another webhook" : "Add a webhook"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 2fr", gap: "8px" } }, /* @__PURE__ */ React.createElement(
+    const Wrapper = bare ? React.Fragment : ModalShell;
+    const wrapperProps = bare ? {} : { onCancel: onClose, title: "Slack notifications" };
+    return /* @__PURE__ */ React.createElement(Wrapper, wrapperProps, /* @__PURE__ */ React.createElement("p", { style: { fontSize: "14px", lineHeight: 1.5, margin: "0 0 14px" } }, "Add one or more Slack Incoming Webhook URLs. Whenever a Current Recruitment speaker is marked Confirmed, a message posts to every channel below \u2014 add your own anytime without affecting anyone else's."), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "12px", color: "#7A7568", lineHeight: 1.5, margin: "0 0 16px" } }, "In Slack: go to ", /* @__PURE__ */ React.createElement("strong", null, "api.slack.com/apps"), " \u2192 create or open an app \u2192 ", /* @__PURE__ */ React.createElement("strong", null, "Incoming Webhooks"), " \u2192 turn it on \u2192 ", /* @__PURE__ */ React.createElement("strong", null, "Add New Webhook to Workspace"), " \u2192 pick a channel \u2192 copy the URL it gives you."), webhooks.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: "18px" } }, webhooks.map((w) => /* @__PURE__ */ React.createElement("div", { key: w.id, style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", padding: "10px 12px", border: "1px solid #D8D0BE", borderRadius: "3px", marginBottom: "8px", background: "#FBF9F4" } }, /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "13px", fontWeight: 600 } }, w.label), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "12px", color: "#7A7568", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, w.url)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "8px", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("button", { onClick: () => handleTest(w), disabled: testingId === w.id, style: { ...secondaryBtnStyle, padding: "5px 10px", fontSize: "12px" } }, testingId === w.id ? "Sending\u2026" : testedId === w.id ? "Sent \u2713" : "Test"), /* @__PURE__ */ React.createElement("button", { onClick: () => onRemove(w.id), style: { background: "none", border: "none", color: "#8C2F39", fontSize: "12px", cursor: "pointer", fontFamily: "Inter, sans-serif", textDecoration: "underline" } }, "Remove"))))), /* @__PURE__ */ React.createElement("p", { style: { fontSize: "13px", fontWeight: 600, margin: "0 0 8px", color: "#1E2A32" } }, webhooks.length > 0 ? "Add another webhook" : "Add a webhook"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 2fr", gap: "8px" } }, /* @__PURE__ */ React.createElement(
       "input",
       {
         value: label,
@@ -1722,7 +1743,7 @@
       adding ? "Adding\u2026" : "Add webhook"
     )));
   }
-  function SessionScheduleModal({ schedule, onSave, onClose }) {
+  function SessionScheduleModal({ schedule, onSave, onClose, bare }) {
     const latestEvent = EVENT_OPTIONS[EVENT_OPTIONS.length - 1];
     const sessionNames = SESSION_OPTIONS_BY_EVENT[latestEvent.label] || [];
     const [draft, setDraft] = useState(schedule || {});
@@ -1739,7 +1760,9 @@
         setSaving(false);
       }
     }
-    return /* @__PURE__ */ React.createElement(ModalShell, { onCancel: onClose, title: `Session times \u2014 ${latestEvent.label}`, maxWidth: "760px" }, /* @__PURE__ */ React.createElement("p", { style: { fontSize: "13px", color: "#7A7568", margin: "0 0 16px", lineHeight: 1.5 } }, "Set a date, time, and how many speakers you need for each session. Once set, Current Recruitment will show confirmed vs. open spots."), sessionNames.length === 0 ? /* @__PURE__ */ React.createElement("p", { style: { fontSize: "13px", color: "#7A7568" } }, "No sessions are defined for this event yet.") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr", gap: "8px", padding: "0 0 6px" } }, /* @__PURE__ */ React.createElement("span", null), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "11px", fontWeight: 600, color: "#7A7568" } }, "DATE"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "11px", fontWeight: 600, color: "#7A7568" } }, "START"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "11px", fontWeight: 600, color: "#7A7568" } }, "END"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "11px", fontWeight: 600, color: "#7A7568" } }, "NEEDED")), sessionNames.map((s) => /* @__PURE__ */ React.createElement("div", { key: s, style: { display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr", gap: "8px", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #D8D0BE" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "13px" } }, s), /* @__PURE__ */ React.createElement("input", { type: "date", style: inputStyle(), value: (draft[s] && draft[s].date) || "", onChange: (e) => update(s, "date", e.target.value) }), /* @__PURE__ */ React.createElement("input", { type: "time", style: inputStyle(), value: (draft[s] && draft[s].time) || "", onChange: (e) => update(s, "time", e.target.value) }), /* @__PURE__ */ React.createElement("input", { type: "time", style: inputStyle(), value: (draft[s] && draft[s].endTime) || "", onChange: (e) => update(s, "endTime", e.target.value) }), /* @__PURE__ */ React.createElement("input", { type: "number", min: "0", style: inputStyle(), value: (draft[s] && draft[s].capacity) || "", onChange: (e) => update(s, "capacity", e.target.value) })))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "20px" } }, /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: secondaryBtnStyle }, "Cancel"), /* @__PURE__ */ React.createElement(
+    const Wrapper = bare ? React.Fragment : ModalShell;
+    const wrapperProps = bare ? {} : { onCancel: onClose, title: `Session times \u2014 ${latestEvent.label}`, maxWidth: "760px" };
+    return /* @__PURE__ */ React.createElement(Wrapper, wrapperProps, /* @__PURE__ */ React.createElement("p", { style: { fontSize: "13px", color: "#7A7568", margin: "0 0 16px", lineHeight: 1.5 } }, "Set a date, time, and how many speakers you need for each session. Once set, Current Recruitment will show confirmed vs. open spots."), sessionNames.length === 0 ? /* @__PURE__ */ React.createElement("p", { style: { fontSize: "13px", color: "#7A7568" } }, "No sessions are defined for this event yet.") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr", gap: "8px", padding: "0 0 6px" } }, /* @__PURE__ */ React.createElement("span", null), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "11px", fontWeight: 600, color: "#7A7568" } }, "DATE"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "11px", fontWeight: 600, color: "#7A7568" } }, "START"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "11px", fontWeight: 600, color: "#7A7568" } }, "END"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "11px", fontWeight: 600, color: "#7A7568" } }, "NEEDED")), sessionNames.map((s) => /* @__PURE__ */ React.createElement("div", { key: s, style: { display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr", gap: "8px", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #D8D0BE" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "13px" } }, s), /* @__PURE__ */ React.createElement("input", { type: "date", style: inputStyle(), value: (draft[s] && draft[s].date) || "", onChange: (e) => update(s, "date", e.target.value) }), /* @__PURE__ */ React.createElement("input", { type: "time", style: inputStyle(), value: (draft[s] && draft[s].time) || "", onChange: (e) => update(s, "time", e.target.value) }), /* @__PURE__ */ React.createElement("input", { type: "time", style: inputStyle(), value: (draft[s] && draft[s].endTime) || "", onChange: (e) => update(s, "endTime", e.target.value) }), /* @__PURE__ */ React.createElement("input", { type: "number", min: "0", style: inputStyle(), value: (draft[s] && draft[s].capacity) || "", onChange: (e) => update(s, "capacity", e.target.value) })))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "20px" } }, /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: secondaryBtnStyle }, "Cancel"), /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: handleSave,
@@ -1749,7 +1772,7 @@
       saving ? "Saving\u2026" : "Save"
     )));
   }
-  function TeamModal({ team, onAdd, onRemove, onClose }) {
+  function TeamModal({ team, onAdd, onRemove, onClose, bare }) {
     const [name, setName] = useState("");
     const [busy, setBusy] = useState(false);
     async function handleAdd() {
@@ -1762,7 +1785,9 @@
         setBusy(false);
       }
     }
-    return /* @__PURE__ */ React.createElement(ModalShell, { onCancel: onClose, title: "Manage team" }, /* @__PURE__ */ React.createElement("p", { style: { fontSize: "13px", color: "#7A7568", margin: "0 0 16px", lineHeight: 1.5 } }, "Add the people on your team who reach out to speakers. Once added, they'll show up as choices when logging outreach on a speaker's profile."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "8px" } }, /* @__PURE__ */ React.createElement(
+    const Wrapper = bare ? React.Fragment : ModalShell;
+    const wrapperProps = bare ? {} : { onCancel: onClose, title: "Manage team" };
+    return /* @__PURE__ */ React.createElement(Wrapper, wrapperProps, /* @__PURE__ */ React.createElement("p", { style: { fontSize: "13px", color: "#7A7568", margin: "0 0 16px", lineHeight: 1.5 } }, "Add the people on your team who reach out to speakers. Once added, they'll show up as choices when logging outreach on a speaker's profile."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "8px" } }, /* @__PURE__ */ React.createElement(
       "input",
       {
         style: inputStyle(),
