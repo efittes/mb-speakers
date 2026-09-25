@@ -315,6 +315,24 @@
     if (sp.organization) parts.push(sp.organization);
     return parts.join(" \u2014 ");
   }
+  function formatClockTime(timeStr) {
+    const parts = timeStr.split(":").map(Number);
+    const h = parts[0], m = parts[1] || 0;
+    const period = h >= 12 ? "PM" : "AM";
+    const h12 = h % 12 === 0 ? 12 : h % 12;
+    return `${h12}:${String(m).padStart(2, "0")} ${period}`;
+  }
+  function formatSessionTime(schedule, sessionName) {
+    const entry = schedule && schedule[sessionName];
+    if (!entry || !entry.date) return "";
+    const d = /* @__PURE__ */ new Date(entry.date + "T00:00:00");
+    if (isNaN(d)) return "";
+    const dateStr = d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    if (!entry.time) return dateStr;
+    const startStr = formatClockTime(entry.time);
+    const timeStr = entry.endTime ? `${startStr} \u2013 ${formatClockTime(entry.endTime)}` : startStr;
+    return `${dateStr} \xB7 ${timeStr}`;
+  }
   function emptyDistrict() {
     return { id: uid(), name: "", contactPerson: "", contactEmail: "", lastContactedDate: "", notes: "" };
   }
@@ -425,12 +443,16 @@
     return /* @__PURE__ */ React.createElement("span", { style: { color, background: bg, fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, padding: "3px 9px", borderRadius: "3px", whiteSpace: "nowrap" } }, label);
   }
   function SpeakerRoster() {
-    const [tab, setTab] = useState("recruitment");
+    const [tab, setTab] = useState(() => {
+      try { return localStorage.getItem("mbroster:tab") || "recruitment"; } catch (e) { return "recruitment"; }
+    });
     const [speakers, setSpeakers] = useState([]);
     const [districts, setDistricts] = useState([]);
     const [team, setTeam] = useState([]);
     const [lastReportedDate, setLastReportedDate] = useState(null);
     const [slackWebhooks, setSlackWebhooks] = useState([]);
+    const [sessionSchedule, setSessionSchedule] = useState({});
+    const [showScheduleModal, setShowScheduleModal] = useState(false);
     const [showSlackModal, setShowSlackModal] = useState(false);
     const [loading, setLoading] = useState(true);
     const [liveSyncStatus, setLiveSyncStatus] = useState("connecting");
@@ -439,7 +461,28 @@
     const [saving, setSaving] = useState(false);
     const [query, setQuery] = useState("");
     const [statusFilter, setStatusFilter] = useState("All");
-    const [groupBySession, setGroupBySession] = useState(false);
+    const [groupBySession, setGroupBySession] = useState(() => {
+      try { return localStorage.getItem("mbroster:groupBySession") === "true"; } catch (e) { return false; }
+    });
+    const [collapsedSessions, setCollapsedSessions] = useState(() => {
+      try {
+        const raw = localStorage.getItem("mbroster:collapsedSessions");
+        return raw ? new Set(JSON.parse(raw)) : /* @__PURE__ */ new Set();
+      } catch (e) {
+        return /* @__PURE__ */ new Set();
+      }
+    });
+    useEffect(() => {
+      try { localStorage.setItem("mbroster:collapsedSessions", JSON.stringify(Array.from(collapsedSessions))); } catch (e) {}
+    }, [collapsedSessions]);
+    function toggleSessionCollapsed(sessionName) {
+      setCollapsedSessions((prev) => {
+        const next = new Set(prev);
+        if (next.has(sessionName)) next.delete(sessionName);
+        else next.add(sessionName);
+        return next;
+      });
+    }
     const [speakerSort, setSpeakerSort] = useState("name");
     const [affiliationFilter, setAffiliationFilter] = useState("all");
     const [expandedId, setExpandedId] = useState(null);
@@ -501,6 +544,8 @@
             setLastReportedDate(row.value);
           } else if (row.key === "roster:slackWebhooks") {
             try { setSlackWebhooks(JSON.parse(row.value)); } catch (e) {}
+          } else if (row.key === "roster:sessionSchedule") {
+            try { setSessionSchedule(JSON.parse(row.value)); } catch (e) {}
           }
         }
       ).subscribe((status, err) => {
@@ -509,6 +554,12 @@
       });
       return () => { supabaseClient.removeChannel(channel); };
     }, []);
+    useEffect(() => {
+      try { localStorage.setItem("mbroster:tab", tab); } catch (e) {}
+    }, [tab]);
+    useEffect(() => {
+      try { localStorage.setItem("mbroster:groupBySession", String(groupBySession)); } catch (e) {}
+    }, [groupBySession]);
     const anyModalOpenRef = useRef(false);
     useEffect(() => {
       anyModalOpenRef.current = !!(editingSpeaker || editingDistrict || showBulkImportModal || showTeamModal || showSlackModal || pendingConfirm);
@@ -526,13 +577,14 @@
       setLoading(true);
       setError(null);
       try {
-        const [spRows, dsRows, teamResult, lastReportedResult, slackLegacyResult, slackListResult] = await Promise.all([
+        const [spRows, dsRows, teamResult, lastReportedResult, slackLegacyResult, slackListResult, scheduleResult] = await Promise.all([
           fetchAllRows("speakers").catch(() => []),
           fetchAllRows("districts").catch(() => []),
           sbStorage.get("roster:team", true).catch(() => null),
           sbStorage.get("roster:lastReportedDate", true).catch(() => null),
           sbStorage.get("roster:slackWebhookUrl", true).catch(() => null),
-          sbStorage.get("roster:slackWebhooks", true).catch(() => null)
+          sbStorage.get("roster:slackWebhooks", true).catch(() => null),
+          sbStorage.get("roster:sessionSchedule", true).catch(() => null)
         ]);
         let spArray = spRows.map((r) => r.data);
         let dsArray = dsRows.map((r) => r.data);
@@ -635,11 +687,37 @@
         setTeam(teamArray);
         setLastReportedDate(lastReportedValue);
         setSlackWebhooks(slackWebhooksFinal);
+        setSessionSchedule(scheduleResult ? JSON.parse(scheduleResult.value) : {});
       } catch (e) {
         setError("Couldn't load the roster. Try refreshing.");
       } finally {
         setLoading(false);
       }
+    }
+    async function refreshDataQuietly() {
+      try {
+        const [spRows, dsRows] = await Promise.all([fetchAllRows("speakers"), fetchAllRows("districts")]);
+        const freshSpeakers = spRows.map((r) => r.data).sort((a, b) => a.name.localeCompare(b.name));
+        const freshDistricts = dsRows.map((r) => r.data).sort((a, b) => a.name.localeCompare(b.name));
+        setSpeakers(freshSpeakers);
+        setDistricts(freshDistricts);
+        return freshSpeakers;
+      } catch (e) {
+        return speakers;
+      }
+    }
+    async function openAddSpeaker() {
+      await refreshDataQuietly();
+      setEditingSpeaker(emptySpeaker());
+    }
+    async function openEditSpeaker(sp) {
+      const fresh = await refreshDataQuietly();
+      const freshSp = fresh.find((s) => s.id === sp.id) || sp;
+      setEditingSpeaker(freshSp);
+    }
+    async function saveSessionSchedule(next) {
+      await sbStorage.set("roster:sessionSchedule", JSON.stringify(next), true);
+      setSessionSchedule(next);
     }
     async function persistTeam(next) {
       await sbStorage.set("roster:team", JSON.stringify(next), true);
@@ -884,6 +962,25 @@
       ];
       return orderedKeys.map((key) => ({ session: key, speakers: map.get(key) }));
     }, [filteredRecruitment]);
+    const sessionCapacitySummary = useMemo(() => {
+      const latest = EVENT_OPTIONS[EVENT_OPTIONS.length - 1];
+      const perSession = {};
+      let totalNeeded = 0;
+      let totalConfirmed = 0;
+      Object.keys(sessionSchedule || {}).forEach((sessionName) => {
+        const cap = parseInt(sessionSchedule[sessionName] && sessionSchedule[sessionName].capacity, 10);
+        if (!cap || cap <= 0) return;
+        const confirmedCount = recruitmentSpeakers.filter((sp) => {
+          if (sp.status !== "Confirmed") return false;
+          const ev = (sp.events || []).find((e) => e.event === latest.label);
+          return ev && ev.session && ev.session.trim() === sessionName;
+        }).length;
+        perSession[sessionName] = { needed: cap, confirmed: confirmedCount };
+        totalNeeded += cap;
+        totalConfirmed += confirmedCount;
+      });
+      return { perSession, totalNeeded, totalConfirmed };
+    }, [sessionSchedule, recruitmentSpeakers]);
     const districtSpeakerCounts = useMemo(() => {
       const map = {};
       speakers.forEach((sp) => {
@@ -1038,10 +1135,10 @@
       const filterSuffix = (tab === "speakers" || tab === "recruitment") && statusFilter !== "All" ? `-${filterLabel}` : "";
       XLSX.writeFile(wb, `speaker-roster${filterSuffix}-${todayISO()}.xlsx`);
     }
-    return /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "Inter, sans-serif", background: "#F3EEE4", minHeight: "100%", color: "#1E2A32" } }, /* @__PURE__ */ React.createElement("style", null, FONT_IMPORT), /* @__PURE__ */ React.createElement("div", { style: { borderBottom: "2px solid #1E2A32", padding: "28px 28px 0" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "12px" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h1", { style: { fontFamily: "Fraunces, serif", fontSize: "34px", fontWeight: 600, margin: 0, letterSpacing: "-0.01em" } }, "EdWeek Market Brief Speaker Roster"), /* @__PURE__ */ React.createElement("p", { style: { margin: "4px 0 0", fontSize: "14px", color: "#7A7568" } }, speakers.length, " ", speakers.length === 1 ? "speaker" : "speakers", " \xB7 shared with your team"), /* @__PURE__ */ React.createElement("p", { style: { margin: "4px 0 0", fontSize: "12px", color: "#7A7568" } }, "\u{1F4A1} Just made a change? Refresh the page after a minute or two to make sure you're seeing everyone's latest updates.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "10px" } }, /* @__PURE__ */ React.createElement("button", { onClick: exportToExcel, style: secondaryBtnStyle }, "Export to Excel"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowTeamModal(true), style: secondaryBtnStyle }, "Manage team"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowSlackModal(true), style: secondaryBtnStyle }, slackWebhooks.length > 0 ? `\u2713 Slack notifications (${slackWebhooks.length})` : "Slack notifications"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowBulkImportModal(true), style: secondaryBtnStyle }, "Bulk add from Excel"), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "Inter, sans-serif", background: "#F3EEE4", minHeight: "100%", color: "#1E2A32" } }, /* @__PURE__ */ React.createElement("style", null, FONT_IMPORT), /* @__PURE__ */ React.createElement("div", { style: { borderBottom: "2px solid #1E2A32", padding: "28px 28px 0" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "12px" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h1", { style: { fontFamily: "Fraunces, serif", fontSize: "34px", fontWeight: 600, margin: 0, letterSpacing: "-0.01em" } }, "EdWeek Market Brief Speaker Roster"), /* @__PURE__ */ React.createElement("p", { style: { margin: "4px 0 0", fontSize: "14px", color: "#7A7568" } }, speakers.length, " ", speakers.length === 1 ? "speaker" : "speakers", " \xB7 shared with your team"), /* @__PURE__ */ React.createElement("p", { style: { margin: "4px 0 0", fontSize: "12px", color: "#7A7568" } }, "\u{1F4A1} Just made a change? Refresh the page after a minute or two to make sure you're seeing everyone's latest updates.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "10px" } }, /* @__PURE__ */ React.createElement("button", { onClick: exportToExcel, style: secondaryBtnStyle }, "Export to Excel"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowTeamModal(true), style: secondaryBtnStyle }, "Manage team"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowScheduleModal(true), style: secondaryBtnStyle }, "Manage session times"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowSlackModal(true), style: secondaryBtnStyle }, slackWebhooks.length > 0 ? `\u2713 Slack notifications (${slackWebhooks.length})` : "Slack notifications"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowBulkImportModal(true), style: secondaryBtnStyle }, "Bulk add from Excel"), /* @__PURE__ */ React.createElement(
       "button",
       {
-        onClick: () => setEditingSpeaker(emptySpeaker()),
+        onClick: openAddSpeaker,
         style: { background: "#8C2F39", color: "#F3EEE4", border: "none", borderRadius: "3px", padding: "10px 18px", fontSize: "14px", fontWeight: 600, cursor: "pointer", fontFamily: "Inter, sans-serif" }
       },
       "Add speaker"
@@ -1108,6 +1205,23 @@
         }
       },
       groupBySession ? "\u2713 Grouped by session" : "Group by session"
+    )), tab === "recruitment" && sessionCapacitySummary.totalNeeded > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "10px", marginTop: "10px" } }, /* @__PURE__ */ React.createElement(
+      "span",
+      {
+        style: {
+          fontSize: "13px",
+          fontWeight: 600,
+          color: sessionCapacitySummary.totalConfirmed >= sessionCapacitySummary.totalNeeded ? "#4B6B4F" : "#1E2A32"
+        }
+      },
+      sessionCapacitySummary.totalConfirmed,
+      " confirmed \xB7 ",
+      Math.max(sessionCapacitySummary.totalNeeded - sessionCapacitySummary.totalConfirmed, 0),
+      " open spot",
+      Math.max(sessionCapacitySummary.totalNeeded - sessionCapacitySummary.totalConfirmed, 0) === 1 ? "" : "s",
+      " left (of ",
+      sessionCapacitySummary.totalNeeded,
+      " needed)"
     )), tab === "recruitment" && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "10px", marginTop: "10px" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "12px", color: "#7A7568" } }, "Last reported: ", lastReportedDate ? lastReportedDate : "never"), /* @__PURE__ */ React.createElement("button", { onClick: markAsReported, style: { ...secondaryBtnStyle, padding: "5px 10px", fontSize: "12px" } }, "Mark as reported today"))), /* @__PURE__ */ React.createElement("div", { style: { padding: "18px 28px 48px" } }, loading ? /* @__PURE__ */ React.createElement("p", { style: { color: "#7A7568", fontSize: "14px" } }, "Loading\u2026") : tab === "speakers" ? /* @__PURE__ */ React.createElement(
       SpeakerList,
       {
@@ -1117,13 +1231,31 @@
         setExpandedId,
         confirmDeleteId,
         setConfirmDeleteId,
-        onEdit: setEditingSpeaker,
+        onEdit: openEditSpeaker,
         onDelete: deleteSpeaker,
         team,
         onLogOutreach: addOutreachEntry,
         onChangeStatus: requestStatusChange
       }
-    ) : tab === "recruitment" ? groupBySession ? recruitmentSpeakers.length === 0 ? /* @__PURE__ */ React.createElement(EmptyState, { title: "Nothing in active recruitment", subtitle: "Speakers marked Prospect, Invited, or Confirmed will show up here automatically." }) : filteredRecruitment.length === 0 ? /* @__PURE__ */ React.createElement(EmptyState, { title: "Nothing matches", subtitle: "Try a different search or filter." }) : sessionGroups.map((group) => /* @__PURE__ */ React.createElement("div", { key: group.session, style: { marginBottom: "8px" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: "8px", padding: "18px 4px 8px", borderBottom: "2px solid #1E2A32" } }, /* @__PURE__ */ React.createElement("h3", { style: { fontFamily: "Fraunces, serif", fontSize: "17px", fontWeight: 600, margin: 0 } }, group.session), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "12px", color: "#7A7568" } }, group.speakers.length, " ", group.speakers.length === 1 ? "speaker" : "speakers")), /* @__PURE__ */ React.createElement(
+    ) : tab === "recruitment" ? groupBySession ? recruitmentSpeakers.length === 0 ? /* @__PURE__ */ React.createElement(EmptyState, { title: "Nothing in active recruitment", subtitle: "Speakers marked Prospect, Invited, or Confirmed will show up here automatically." }) : filteredRecruitment.length === 0 ? /* @__PURE__ */ React.createElement(EmptyState, { title: "Nothing matches", subtitle: "Try a different search or filter." }) : sessionGroups.map((group) => {
+      const isCollapsed = collapsedSessions.has(group.session);
+      return /* @__PURE__ */ React.createElement("div", { key: group.session, style: { marginBottom: "8px" } }, /* @__PURE__ */ React.createElement("div", { onClick: () => toggleSessionCollapsed(group.session), style: { display: "flex", alignItems: "baseline", gap: "8px", padding: "18px 4px 8px", borderBottom: "2px solid #1E2A32", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "14px", color: "#7A7568", transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform 0.15s", display: "inline-block" } }, "\u25BC"), /* @__PURE__ */ React.createElement("h3", { style: { fontFamily: "Fraunces, serif", fontSize: "17px", fontWeight: 600, margin: 0 } }, group.session), formatSessionTime(sessionSchedule, group.session) && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "13px", color: "#8C2F39", fontWeight: 600 } }, formatSessionTime(sessionSchedule, group.session)), sessionCapacitySummary.perSession[group.session] && /* @__PURE__ */ React.createElement(
+        "span",
+        {
+          style: {
+            fontSize: "12px",
+            fontWeight: 600,
+            padding: "2px 8px",
+            borderRadius: "3px",
+            color: sessionCapacitySummary.perSession[group.session].confirmed >= sessionCapacitySummary.perSession[group.session].needed ? "#F3EEE4" : "#1E2A32",
+            background: sessionCapacitySummary.perSession[group.session].confirmed >= sessionCapacitySummary.perSession[group.session].needed ? "#4B6B4F" : "#EDE6D6"
+          }
+        },
+        sessionCapacitySummary.perSession[group.session].confirmed,
+        "/",
+        sessionCapacitySummary.perSession[group.session].needed,
+        " confirmed"
+      ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "12px", color: "#7A7568" } }, group.speakers.length, " ", group.speakers.length === 1 ? "speaker" : "speakers")), !isCollapsed && /* @__PURE__ */ React.createElement(
       SpeakerList,
       {
         speakers: group.speakers,
@@ -1132,14 +1264,15 @@
         setExpandedId,
         confirmDeleteId,
         setConfirmDeleteId,
-        onEdit: setEditingSpeaker,
+        onEdit: openEditSpeaker,
         onDelete: deleteSpeaker,
         team,
         onLogOutreach: addOutreachEntry,
         onChangeStatus: requestStatusChange,
         flagStaleOutreach: true
       }
-    ))) : /* @__PURE__ */ React.createElement(
+    ));
+    }) : /* @__PURE__ */ React.createElement(
       SpeakerList,
       {
         speakers: filteredRecruitment,
@@ -1148,7 +1281,7 @@
         setExpandedId,
         confirmDeleteId,
         setConfirmDeleteId,
-        onEdit: setEditingSpeaker,
+        onEdit: openEditSpeaker,
         onDelete: deleteSpeaker,
         team,
         onLogOutreach: addOutreachEntry,
@@ -1232,7 +1365,7 @@
         onCancel: () => setEditingDistrict(null),
         onSave: saveDistrict
       }
-    ), showTeamModal && /* @__PURE__ */ React.createElement(TeamModal, { team, onAdd: addTeamMember, onRemove: removeTeamMember, onClose: () => setShowTeamModal(false) }), showSlackModal && /* @__PURE__ */ React.createElement(
+    ), showTeamModal && /* @__PURE__ */ React.createElement(TeamModal, { team, onAdd: addTeamMember, onRemove: removeTeamMember, onClose: () => setShowTeamModal(false) }), showScheduleModal && /* @__PURE__ */ React.createElement(SessionScheduleModal, { schedule: sessionSchedule, onSave: saveSessionSchedule, onClose: () => setShowScheduleModal(false) }), showSlackModal && /* @__PURE__ */ React.createElement(
       SlackSettingsModal,
       {
         webhooks: slackWebhooks,
@@ -1551,6 +1684,33 @@
         style: { background: "#8C2F39", color: "#F3EEE4", border: "none", borderRadius: "3px", padding: "10px 18px", fontSize: "14px", fontWeight: 600, cursor: url.trim() ? "pointer" : "not-allowed", opacity: url.trim() ? 1 : 0.6, fontFamily: "Inter, sans-serif" }
       },
       adding ? "Adding\u2026" : "Add webhook"
+    )));
+  }
+  function SessionScheduleModal({ schedule, onSave, onClose }) {
+    const latestEvent = EVENT_OPTIONS[EVENT_OPTIONS.length - 1];
+    const sessionNames = SESSION_OPTIONS_BY_EVENT[latestEvent.label] || [];
+    const [draft, setDraft] = useState(schedule || {});
+    const [saving, setSaving] = useState(false);
+    function update(sessionName, field, value) {
+      setDraft((d) => ({ ...d, [sessionName]: { ...(d[sessionName] || {}), [field]: value } }));
+    }
+    async function handleSave() {
+      setSaving(true);
+      try {
+        await onSave(draft);
+        onClose();
+      } finally {
+        setSaving(false);
+      }
+    }
+    return /* @__PURE__ */ React.createElement(ModalShell, { onCancel: onClose, title: `Session times \u2014 ${latestEvent.label}` }, /* @__PURE__ */ React.createElement("p", { style: { fontSize: "13px", color: "#7A7568", margin: "0 0 16px", lineHeight: 1.5 } }, "Set a date, time, and how many speakers you need for each session. Once set, Current Recruitment will show confirmed vs. open spots."), sessionNames.length === 0 ? /* @__PURE__ */ React.createElement("p", { style: { fontSize: "13px", color: "#7A7568" } }, "No sessions are defined for this event yet.") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 0.8fr", gap: "8px", padding: "0 0 6px" } }, /* @__PURE__ */ React.createElement("span", null), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "11px", fontWeight: 600, color: "#7A7568" } }, "DATE"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "11px", fontWeight: 600, color: "#7A7568" } }, "START"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "11px", fontWeight: 600, color: "#7A7568" } }, "END"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "11px", fontWeight: 600, color: "#7A7568" } }, "NEEDED")), sessionNames.map((s) => /* @__PURE__ */ React.createElement("div", { key: s, style: { display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 0.8fr", gap: "8px", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #D8D0BE" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "13px" } }, s), /* @__PURE__ */ React.createElement("input", { type: "date", style: inputStyle(), value: (draft[s] && draft[s].date) || "", onChange: (e) => update(s, "date", e.target.value) }), /* @__PURE__ */ React.createElement("input", { type: "time", style: inputStyle(), value: (draft[s] && draft[s].time) || "", onChange: (e) => update(s, "time", e.target.value) }), /* @__PURE__ */ React.createElement("input", { type: "time", style: inputStyle(), value: (draft[s] && draft[s].endTime) || "", onChange: (e) => update(s, "endTime", e.target.value) }), /* @__PURE__ */ React.createElement("input", { type: "number", min: "0", style: inputStyle(), value: (draft[s] && draft[s].capacity) || "", onChange: (e) => update(s, "capacity", e.target.value) })))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "20px" } }, /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: secondaryBtnStyle }, "Cancel"), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: handleSave,
+        disabled: saving,
+        style: { background: "#8C2F39", color: "#F3EEE4", border: "none", borderRadius: "3px", padding: "10px 18px", fontSize: "14px", fontWeight: 600, cursor: "pointer", fontFamily: "Inter, sans-serif" }
+      },
+      saving ? "Saving\u2026" : "Save"
     )));
   }
   function TeamModal({ team, onAdd, onRemove, onClose }) {
