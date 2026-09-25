@@ -336,6 +336,40 @@
   function emptyDistrict() {
     return { id: uid(), name: "", contactPerson: "", contactEmail: "", lastContactedDate: "", notes: "" };
   }
+  const RECRUITMENT_PACING_MILESTONES = [
+    { days: 90, pct: 25 },
+    { days: 60, pct: 50 },
+    { days: 30, pct: 80 },
+    { days: 14, pct: 100 }
+  ];
+  function expectedFillPercentForDays(daysUntilEvent) {
+    const points = RECRUITMENT_PACING_MILESTONES;
+    if (daysUntilEvent >= points[0].days) return points[0].pct;
+    if (daysUntilEvent <= points[points.length - 1].days) return points[points.length - 1].pct;
+    for (let i = 0; i < points.length - 1; i++) {
+      const a = points[i], b = points[i + 1];
+      if (daysUntilEvent <= a.days && daysUntilEvent >= b.days) {
+        const t = (a.days - daysUntilEvent) / (a.days - b.days);
+        return a.pct + t * (b.pct - a.pct);
+      }
+    }
+    return points[points.length - 1].pct;
+  }
+  function pacingColor(actualPercent, targetPercent) {
+    const diff = actualPercent - targetPercent;
+    if (diff >= 0) return "#4B6B4F";
+    if (diff >= -15) return "#A9752B";
+    return "#A13E2A";
+  }
+  function fillPercentColor(percent) {
+    if (percent >= 75) return "#4B6B4F";
+    if (percent >= 25) return "#A9752B";
+    return "#A13E2A";
+  }
+  function ProgressBar({ percent, color }) {
+    const clamped = Math.max(0, Math.min(100, percent));
+    return /* @__PURE__ */ React.createElement("div", { style: { width: "100%", maxWidth: "320px", height: "10px", background: "#D8D0BE", borderRadius: "6px", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { width: `${clamped}%`, height: "100%", background: color, borderRadius: "6px", transition: "width 0.3s ease" } }));
+  }
   function Badge({ status }) {
     const s = STATUS_STYLES[status] || STATUS_STYLES.Prospect;
     return /* @__PURE__ */ React.createElement("span", { style: { color: s.color, background: s.bg, fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, padding: "3px 9px", borderRadius: "3px", letterSpacing: "0.01em", whiteSpace: "nowrap" } }, s.label);
@@ -979,7 +1013,9 @@
         totalNeeded += cap;
         totalConfirmed += confirmedCount;
       });
-      return { perSession, totalNeeded, totalConfirmed };
+      const daysUntilEvent = Math.ceil(((/* @__PURE__ */ new Date(latest.date + "T00:00:00")).getTime() - Date.now()) / 864e5);
+      const targetPercent = expectedFillPercentForDays(daysUntilEvent);
+      return { perSession, totalNeeded, totalConfirmed, daysUntilEvent, targetPercent };
     }, [sessionSchedule, recruitmentSpeakers]);
     const districtSpeakerCounts = useMemo(() => {
       const map = {};
@@ -1205,12 +1241,12 @@
         }
       },
       groupBySession ? "\u2713 Grouped by session" : "Group by session"
-    )), tab === "recruitment" && sessionCapacitySummary.totalNeeded > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "10px", marginTop: "10px" } }, /* @__PURE__ */ React.createElement(
+    )), tab === "recruitment" && sessionCapacitySummary.totalNeeded > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "6px", marginTop: "10px" } }, /* @__PURE__ */ React.createElement(
       "span",
       {
         style: {
-          fontSize: "13px",
-          fontWeight: 600,
+          fontSize: "20px",
+          fontWeight: 700,
           color: sessionCapacitySummary.totalConfirmed >= sessionCapacitySummary.totalNeeded ? "#4B6B4F" : "#1E2A32"
         }
       },
@@ -1222,7 +1258,7 @@
       " left (of ",
       sessionCapacitySummary.totalNeeded,
       " needed)"
-    )), tab === "recruitment" && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "10px", marginTop: "10px" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "12px", color: "#7A7568" } }, "Last reported: ", lastReportedDate ? lastReportedDate : "never"), /* @__PURE__ */ React.createElement("button", { onClick: markAsReported, style: { ...secondaryBtnStyle, padding: "5px 10px", fontSize: "12px" } }, "Mark as reported today"))), /* @__PURE__ */ React.createElement("div", { style: { padding: "18px 28px 48px" } }, loading ? /* @__PURE__ */ React.createElement("p", { style: { color: "#7A7568", fontSize: "14px" } }, "Loading\u2026") : tab === "speakers" ? /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement(ProgressBar, { percent: sessionCapacitySummary.totalNeeded > 0 ? sessionCapacitySummary.totalConfirmed / sessionCapacitySummary.totalNeeded * 100 : 0, color: pacingColor(sessionCapacitySummary.totalNeeded > 0 ? sessionCapacitySummary.totalConfirmed / sessionCapacitySummary.totalNeeded * 100 : 0, sessionCapacitySummary.targetPercent) }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: "12px", color: "#7A7568" } }, Math.round(sessionCapacitySummary.totalConfirmed / sessionCapacitySummary.totalNeeded * 100), "% filled \xB7 target ", Math.round(sessionCapacitySummary.targetPercent), "% by now (", sessionCapacitySummary.daysUntilEvent, " days out)")), tab === "recruitment" && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "10px", marginTop: "10px" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "12px", color: "#7A7568" } }, "Last reported: ", lastReportedDate ? lastReportedDate : "never"), /* @__PURE__ */ React.createElement("button", { onClick: markAsReported, style: { ...secondaryBtnStyle, padding: "5px 10px", fontSize: "12px" } }, "Mark as reported today"))), /* @__PURE__ */ React.createElement("div", { style: { padding: "18px 28px 48px" } }, loading ? /* @__PURE__ */ React.createElement("p", { style: { color: "#7A7568", fontSize: "14px" } }, "Loading\u2026") : tab === "speakers" ? /* @__PURE__ */ React.createElement(
       SpeakerList,
       {
         speakers: filteredSpeakers,
@@ -1239,7 +1275,7 @@
       }
     ) : tab === "recruitment" ? groupBySession ? recruitmentSpeakers.length === 0 ? /* @__PURE__ */ React.createElement(EmptyState, { title: "Nothing in active recruitment", subtitle: "Speakers marked Prospect, Invited, or Confirmed will show up here automatically." }) : filteredRecruitment.length === 0 ? /* @__PURE__ */ React.createElement(EmptyState, { title: "Nothing matches", subtitle: "Try a different search or filter." }) : sessionGroups.map((group) => {
       const isCollapsed = collapsedSessions.has(group.session);
-      return /* @__PURE__ */ React.createElement("div", { key: group.session, style: { marginBottom: "8px" } }, /* @__PURE__ */ React.createElement("div", { onClick: () => toggleSessionCollapsed(group.session), style: { display: "flex", alignItems: "baseline", gap: "8px", padding: "18px 4px 8px", borderBottom: "2px solid #1E2A32", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "14px", color: "#7A7568", transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform 0.15s", display: "inline-block" } }, "\u25BC"), /* @__PURE__ */ React.createElement("h3", { style: { fontFamily: "Fraunces, serif", fontSize: "17px", fontWeight: 600, margin: 0 } }, group.session), formatSessionTime(sessionSchedule, group.session) && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "13px", color: "#8C2F39", fontWeight: 600 } }, formatSessionTime(sessionSchedule, group.session)), sessionCapacitySummary.perSession[group.session] && /* @__PURE__ */ React.createElement(
+      return /* @__PURE__ */ React.createElement("div", { key: group.session, style: { marginBottom: "8px" } }, /* @__PURE__ */ React.createElement("div", { onClick: () => toggleSessionCollapsed(group.session), style: { display: "flex", alignItems: "baseline", gap: "8px", padding: "18px 4px 8px", borderBottom: "2px solid #1E2A32", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "14px", color: "#7A7568", transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform 0.15s", display: "inline-block" } }, "\u25BC"), /* @__PURE__ */ React.createElement("h3", { style: { fontFamily: "Fraunces, serif", fontSize: "17px", fontWeight: 600, margin: 0 } }, group.session), formatSessionTime(sessionSchedule, group.session) && /* @__PURE__ */ React.createElement("span", { style: { fontSize: "13px", color: "#7A7568", fontWeight: 600 } }, formatSessionTime(sessionSchedule, group.session)), sessionCapacitySummary.perSession[group.session] && /* @__PURE__ */ React.createElement(
         "span",
         {
           style: {
