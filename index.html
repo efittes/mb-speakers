@@ -698,7 +698,7 @@
       const AUTO_REFRESH_MS = 10 * 60 * 1e3;
       const interval = setInterval(() => {
         if (!anyModalOpenRef.current) {
-          window.location.reload();
+          window.location.href = window.location.pathname + "?_=" + Date.now();
         }
       }, AUTO_REFRESH_MS);
       return () => clearInterval(interval);
@@ -708,8 +708,8 @@
       setError(null);
       try {
         const [spRows, dsRows, teamResult, lastReportedResult, slackLegacyResult, slackListResult, scheduleResult, templatesResult] = await Promise.all([
-          fetchAllRows("speakers").catch(() => []),
-          fetchAllRows("districts").catch(() => []),
+          fetchAllRows("speakers"),
+          fetchAllRows("districts"),
           sbStorage.get("roster:team", true).catch(() => null),
           sbStorage.get("roster:lastReportedDate", true).catch(() => null),
           sbStorage.get("roster:slackWebhookUrl", true).catch(() => null),
@@ -719,21 +719,7 @@
         ]);
         let spArray = spRows.map((r) => r.data);
         let dsArray = dsRows.map((r) => r.data);
-        let migratingFromBlob = false;
-        if (spArray.length === 0) {
-          const legacySp = await sbStorage.get("roster:speakers", true).catch(() => null);
-          if (legacySp) {
-            spArray = JSON.parse(legacySp.value);
-            migratingFromBlob = true;
-          }
-        }
-        if (dsArray.length === 0) {
-          const legacyDs = await sbStorage.get("roster:districts", true).catch(() => null);
-          if (legacyDs) {
-            dsArray = JSON.parse(legacyDs.value);
-            migratingFromBlob = true;
-          }
-        }
+        const migratingFromBlob = false;
         const teamArray = teamResult ? JSON.parse(teamResult.value) : [];
         const lastReportedValue = lastReportedResult ? lastReportedResult.value : null;
         const slackWebhooksList = slackListResult ? JSON.parse(slackListResult.value) : null;
