@@ -24,7 +24,7 @@
   const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   async function fetchAllRows(table) {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=id,data`, {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=*`, {
       headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` }
     });
     if (!res.ok) throw new Error(`Couldn't load ${table} (status ${res.status}).`);
@@ -52,6 +52,19 @@
       headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` }
     });
     if (!res.ok) throw new Error(`Couldn't delete from ${table} (status ${res.status}).`);
+  }
+  async function ensureDailySnapshot(currentSpeakers) {
+    try {
+      const todayKey = todayISO();
+      const checkRes = await fetch(`${SUPABASE_URL}/rest/v1/roster_snapshots?id=eq.${todayKey}&select=id`, {
+        headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` }
+      });
+      if (!checkRes.ok) return;
+      const existing = await checkRes.json();
+      if (existing.length > 0) return;
+      await upsertRow("roster_snapshots", todayKey, currentSpeakers);
+    } catch (e) {
+    }
   }
 
   async function sbStorageGetRaw(key) {
@@ -576,6 +589,8 @@
     const [slackWebhooks, setSlackWebhooks] = useState([]);
     const [sessionSchedule, setSessionSchedule] = useState({});
     const [emailTemplates, setEmailTemplates] = useState([]);
+    const [deletedSpeakers, setDeletedSpeakers] = useState([]);
+    const [snapshots, setSnapshots] = useState([]);
     const [showSettingsModal, setShowSettingsModal] = useState(false);
     const [loading, setLoading] = useState(true);
     const [liveSyncStatus, setLiveSyncStatus] = useState("connecting");
@@ -660,6 +675,25 @@
         }
       ).on(
         "postgres_changes",
+        { event: "*", schema: "public", table: "deleted_speakers" },
+        (payload) => {
+          setRealtimeEventCount((n) => n + 1);
+          console.log("[roster-live-sync] deleted_speakers event:", payload.eventType, payload);
+          if (payload.eventType === "DELETE") {
+            setDeletedSpeakers((prev) => prev.filter((d) => d.id !== payload.old.id));
+          } else {
+            const record = payload.new.data;
+            const deletedAt = payload.new.deleted_at;
+            setDeletedSpeakers((prev) => {
+              const exists = prev.some((d) => d.id === payload.new.id);
+              const entry = { id: payload.new.id, data: record, deletedAt };
+              const next = exists ? prev.map((d) => d.id === payload.new.id ? entry : d) : [entry, ...prev];
+              return next.sort((a, b) => (b.deletedAt || "").localeCompare(a.deletedAt || ""));
+            });
+          }
+        }
+      ).on(
+        "postgres_changes",
         { event: "*", schema: "public", table: "roster_storage" },
         (payload) => {
           setRealtimeEventCount((n) => n + 1);
@@ -707,7 +741,7 @@
       setLoading(true);
       setError(null);
       try {
-        const [spRows, dsRows, teamResult, lastReportedResult, slackLegacyResult, slackListResult, scheduleResult, templatesResult] = await Promise.all([
+        const [spRows, dsRows, teamResult, lastReportedResult, slackLegacyResult, slackListResult, scheduleResult, templatesResult, deletedRows] = await Promise.all([
           fetchAllRows("speakers"),
           fetchAllRows("districts"),
           sbStorage.get("roster:team", true).catch(() => null),
@@ -715,7 +749,8 @@
           sbStorage.get("roster:slackWebhookUrl", true).catch(() => null),
           sbStorage.get("roster:slackWebhooks", true).catch(() => null),
           sbStorage.get("roster:sessionSchedule", true).catch(() => null),
-          sbStorage.get("roster:emailTemplates", true).catch(() => null)
+          sbStorage.get("roster:emailTemplates", true).catch(() => null),
+          fetchAllRows("deleted_speakers").catch(() => [])
         ]);
         let spArray = spRows.map((r) => r.data);
         let dsArray = dsRows.map((r) => r.data);
@@ -806,6 +841,13 @@
         setSlackWebhooks(slackWebhooksFinal);
         setSessionSchedule(scheduleResult ? JSON.parse(scheduleResult.value) : {});
         setEmailTemplates(templatesResult ? JSON.parse(templatesResult.value) : []);
+        setDeletedSpeakers(deletedRows.map((r) => ({ id: r.id, data: r.data, deletedAt: r.deleted_at })).sort((a, b) => (b.deletedAt || "").localeCompare(a.deletedAt || "")));
+        ensureDailySnapshot(spArray).catch(() => {
+        });
+        fetch(`${SUPABASE_URL}/rest/v1/roster_snapshots?select=id,updated_at&order=id.desc`, {
+          headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` }
+        }).then((r) => r.ok ? r.json() : []).then((rows) => setSnapshots(rows)).catch(() => {
+        });
       } catch (e) {
         setError("Couldn't load the roster. Try refreshing.");
       } finally {
@@ -984,14 +1026,47 @@
     }
     async function deleteSpeaker(id) {
       try {
+        const sp = speakers.find((p) => p.id === id);
         const next = speakers.filter((p) => p.id !== id);
+        if (sp) {
+          await upsertRow("deleted_speakers", sp.id, sp);
+        }
         await deleteRow("speakers", id);
         setSpeakers(next);
+        if (sp) {
+          setDeletedSpeakers((prev) => [{ id: sp.id, data: sp, deletedAt: (/* @__PURE__ */ new Date()).toISOString() }, ...prev.filter((d) => d.id !== sp.id)]);
+        }
         setConfirmDeleteId(null);
         if (expandedId === id) setExpandedId(null);
       } catch (e) {
         setError("Couldn't remove that speaker. Try again.");
       }
+    }
+    async function restoreSpeaker(entry) {
+      try {
+        await upsertRow("speakers", entry.id, entry.data);
+        await deleteRow("deleted_speakers", entry.id);
+        setSpeakers((prev) => [...prev.filter((p) => p.id !== entry.id), entry.data].sort((a, b) => a.name.localeCompare(b.name)));
+        setDeletedSpeakers((prev) => prev.filter((d) => d.id !== entry.id));
+      } catch (e) {
+        setError("Couldn't restore that speaker. Try again.");
+      }
+    }
+    async function permanentlyDeleteSpeaker(id) {
+      try {
+        await deleteRow("deleted_speakers", id);
+        setDeletedSpeakers((prev) => prev.filter((d) => d.id !== id));
+      } catch (e) {
+        setError("Couldn't permanently delete that entry. Try again.");
+      }
+    }
+    async function addBackFromSnapshot(sp) {
+      await upsertRow("speakers", sp.id, sp);
+      setSpeakers((prev) => {
+        const exists = prev.some((p) => p.id === sp.id);
+        const next = exists ? prev.map((p) => p.id === sp.id ? sp : p) : [...prev, sp];
+        return next.sort((a, b) => a.name.localeCompare(b.name));
+      });
     }
     async function saveDistrict(ds) {
       setSaving(true);
@@ -1533,6 +1608,11 @@
         onImportBulk: bulkAddSpeakers,
         templates: emailTemplates,
         onSaveTemplates: saveEmailTemplates,
+        deletedSpeakers,
+        onRestoreSpeaker: restoreSpeaker,
+        onPermanentlyDeleteSpeaker: permanentlyDeleteSpeaker,
+        snapshots,
+        onAddBackFromSnapshot: addBackFromSnapshot,
         onClose: () => setShowSettingsModal(false)
       }
     ), error && /* @__PURE__ */ React.createElement(
@@ -1774,14 +1854,16 @@
   function ModalShell({ onCancel, title, children, maxWidth }) {
     return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: "rgba(30,42,50,0.45)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "5vh 16px", overflowY: "auto", zIndex: 50 }, onClick: onCancel }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { background: "#F3EEE4", borderRadius: "4px", width: "100%", maxWidth: maxWidth || "560px", padding: "26px", fontFamily: "Inter, sans-serif" } }, /* @__PURE__ */ React.createElement("h2", { style: { fontFamily: "Fraunces, serif", fontSize: "22px", fontWeight: 600, margin: "0 0 18px" } }, title), children));
   }
-  function SettingsModal({ team, onAddTeam, onRemoveTeam, schedule, onSaveSchedule, webhooks, onAddWebhook, onRemoveWebhook, speakers, saving, onImportBulk, templates, onSaveTemplates, onClose }) {
+  function SettingsModal({ team, onAddTeam, onRemoveTeam, schedule, onSaveSchedule, webhooks, onAddWebhook, onRemoveWebhook, speakers, saving, onImportBulk, templates, onSaveTemplates, deletedSpeakers, onRestoreSpeaker, onPermanentlyDeleteSpeaker, snapshots, onAddBackFromSnapshot, onClose }) {
     const [tab, setTab] = useState("team");
     const tabs = [
       { key: "team", label: "Team" },
       { key: "sessions", label: "Session Times" },
       { key: "slack", label: "Slack" },
       { key: "bulk", label: "Bulk Import" },
-      { key: "emails", label: "Email Templates" }
+      { key: "emails", label: "Email Templates" },
+      { key: "deleted", label: `Recently Deleted${deletedSpeakers.length > 0 ? ` (${deletedSpeakers.length})` : ""}` },
+      { key: "backups", label: "Backups" }
     ];
     function tabButtonStyle(isActive) {
       return {
@@ -1797,7 +1879,7 @@
         fontFamily: "Inter, sans-serif"
       };
     }
-    return /* @__PURE__ */ React.createElement(ModalShell, { onCancel: onClose, title: "Settings", maxWidth: "820px" }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", borderBottom: "1px solid #D8D0BE", marginBottom: "18px", flexWrap: "wrap" } }, tabs.map((t) => /* @__PURE__ */ React.createElement("button", { key: t.key, onClick: () => setTab(t.key), style: tabButtonStyle(tab === t.key) }, t.label))), tab === "team" && /* @__PURE__ */ React.createElement(TeamModal, { team, onAdd: onAddTeam, onRemove: onRemoveTeam, onClose, bare: true }), tab === "sessions" && /* @__PURE__ */ React.createElement(SessionScheduleModal, { schedule, onSave: onSaveSchedule, onClose, bare: true }), tab === "slack" && /* @__PURE__ */ React.createElement(SlackSettingsModal, { webhooks, onAdd: onAddWebhook, onRemove: onRemoveWebhook, onClose, bare: true }), tab === "bulk" && /* @__PURE__ */ React.createElement(BulkImportModal, { speakers, saving, onCancel: onClose, onImport: onImportBulk, bare: true }), tab === "emails" && /* @__PURE__ */ React.createElement(EmailTemplatesModal, { templates, onSave: onSaveTemplates, onClose, bare: true }));
+    return /* @__PURE__ */ React.createElement(ModalShell, { onCancel: onClose, title: "Settings", maxWidth: "820px" }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", borderBottom: "1px solid #D8D0BE", marginBottom: "18px", flexWrap: "wrap" } }, tabs.map((t) => /* @__PURE__ */ React.createElement("button", { key: t.key, onClick: () => setTab(t.key), style: tabButtonStyle(tab === t.key) }, t.label))), tab === "team" && /* @__PURE__ */ React.createElement(TeamModal, { team, onAdd: onAddTeam, onRemove: onRemoveTeam, onClose, bare: true }), tab === "sessions" && /* @__PURE__ */ React.createElement(SessionScheduleModal, { schedule, onSave: onSaveSchedule, onClose, bare: true }), tab === "slack" && /* @__PURE__ */ React.createElement(SlackSettingsModal, { webhooks, onAdd: onAddWebhook, onRemove: onRemoveWebhook, onClose, bare: true }), tab === "bulk" && /* @__PURE__ */ React.createElement(BulkImportModal, { speakers, saving, onCancel: onClose, onImport: onImportBulk, bare: true }), tab === "emails" && /* @__PURE__ */ React.createElement(EmailTemplatesModal, { templates, onSave: onSaveTemplates, onClose, bare: true }), tab === "deleted" && /* @__PURE__ */ React.createElement(RecentlyDeletedModal, { deletedSpeakers, onRestore: onRestoreSpeaker, onPermanentlyDelete: onPermanentlyDeleteSpeaker, onClose, bare: true }), tab === "backups" && /* @__PURE__ */ React.createElement(BackupsModal, { snapshots, speakers, onAddBack: onAddBackFromSnapshot, onClose, bare: true }));
   }
   function ConfirmStatusModal({ speaker, saving, onCancel, onConfirm, onEditFirst }) {
     const hasTitle = !!(speaker.title && speaker.title.trim());
@@ -1866,6 +1948,68 @@
       },
       adding ? "Adding\u2026" : "Add webhook"
     )));
+  }
+  function BackupsModal({ snapshots, speakers, onAddBack, onClose, bare }) {
+    const [expandedDate, setExpandedDate] = useState(null);
+    const [loadingDate, setLoadingDate] = useState(null);
+    const [diffResults, setDiffResults] = useState({});
+    const [addingId, setAddingId] = useState(null);
+    const [addedIds, setAddedIds] = useState(/* @__PURE__ */ new Set());
+    async function handleCompare(dateId) {
+      if (expandedDate === dateId) {
+        setExpandedDate(null);
+        return;
+      }
+      setExpandedDate(dateId);
+      if (diffResults[dateId]) return;
+      setLoadingDate(dateId);
+      try {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/roster_snapshots?id=eq.${dateId}&select=data`, {
+          headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` }
+        });
+        const rows = await res.json();
+        const snapshotSpeakers = rows[0] && rows[0].data || [];
+        const currentIds = /* @__PURE__ */ new Set(speakers.map((s) => s.id));
+        const missing = snapshotSpeakers.filter((sp) => !currentIds.has(sp.id));
+        setDiffResults((prev) => ({ ...prev, [dateId]: missing }));
+      } catch (e) {
+        setDiffResults((prev) => ({ ...prev, [dateId]: [] }));
+      } finally {
+        setLoadingDate(null);
+      }
+    }
+    async function handleAddBack(sp) {
+      setAddingId(sp.id);
+      try {
+        await onAddBack(sp);
+        setAddedIds((prev) => /* @__PURE__ */ new Set([...prev, sp.id]));
+      } catch (e) {
+      } finally {
+        setAddingId(null);
+      }
+    }
+    const Wrapper = bare ? React.Fragment : ModalShell;
+    const wrapperProps = bare ? {} : { onCancel: onClose, title: "Backups", maxWidth: "760px" };
+    return /* @__PURE__ */ React.createElement(Wrapper, wrapperProps, /* @__PURE__ */ React.createElement("p", { style: { fontSize: "13px", color: "#7A7568", margin: "0 0 16px", lineHeight: 1.5 } }, "A snapshot of the whole roster is saved automatically, once per day, the first time anyone opens the app that day. If someone seems to be missing, compare today's roster against an earlier day to find them."), snapshots.length === 0 ? /* @__PURE__ */ React.createElement("p", { style: { fontSize: "13px", color: "#7A7568" } }, "No backups yet \u2014 one will be created the next time the app loads.") : snapshots.map((snap) => {
+      const dateLabel = formatDateNice(snap.id);
+      const isExpanded = expandedDate === snap.id;
+      const missing = diffResults[snap.id] || [];
+      return /* @__PURE__ */ React.createElement("div", { key: snap.id, style: { border: "1px solid #D8D0BE", borderRadius: "3px", marginBottom: "8px", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", background: "#FBF9F4" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "14px", fontWeight: 600 } }, dateLabel), /* @__PURE__ */ React.createElement("button", { onClick: () => handleCompare(snap.id), style: secondaryBtnStyle }, isExpanded ? "Hide" : "Compare to today")), isExpanded && /* @__PURE__ */ React.createElement("div", { style: { padding: "10px 12px", borderTop: "1px solid #D8D0BE" } }, loadingDate === snap.id ? /* @__PURE__ */ React.createElement("p", { style: { fontSize: "13px", color: "#7A7568", margin: 0 } }, "Comparing\u2026") : missing.length === 0 ? /* @__PURE__ */ React.createElement("p", { style: { fontSize: "13px", color: "#4B6B4F", margin: 0 } }, "Nothing missing \u2014 everyone from this backup is still in today's roster.") : missing.map((sp) => /* @__PURE__ */ React.createElement("div", { key: sp.id, style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", padding: "6px 0", borderTop: "1px solid #EAE4D6" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: "13px" } }, sp.name || "Untitled speaker"), addedIds.has(sp.id) ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: "12px", color: "#4B6B4F", fontWeight: 600 } }, "Added back \u2713") : /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => handleAddBack(sp),
+          disabled: addingId === sp.id,
+          style: { ...secondaryBtnStyle, color: "#8C2F39", borderColor: "#8C2F39" }
+        },
+        addingId === sp.id ? "Adding\u2026" : "Add back"
+      )))));
+    }));
+  }
+  function RecentlyDeletedModal({ deletedSpeakers, onRestore, onPermanentlyDelete, onClose, bare }) {
+    const [confirmingId, setConfirmingId] = useState(null);
+    const Wrapper = bare ? React.Fragment : ModalShell;
+    const wrapperProps = bare ? {} : { onCancel: onClose, title: "Recently deleted", maxWidth: "700px" };
+    return /* @__PURE__ */ React.createElement(Wrapper, wrapperProps, /* @__PURE__ */ React.createElement("p", { style: { fontSize: "13px", color: "#7A7568", margin: "0 0 16px", lineHeight: 1.5 } }, "Anyone removed from the roster shows up here first, so you can bring them back if it was a mistake. Nothing is permanently gone until you choose to delete it for good."), deletedSpeakers.length === 0 ? /* @__PURE__ */ React.createElement("p", { style: { fontSize: "13px", color: "#7A7568" } }, "Nothing here right now.") : deletedSpeakers.map((entry) => /* @__PURE__ */ React.createElement("div", { key: entry.id, style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", padding: "10px 12px", border: "1px solid #D8D0BE", borderRadius: "3px", marginBottom: "8px", background: "#FBF9F4" } }, /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "14px", fontWeight: 600 } }, entry.data.name || "Untitled speaker"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "12px", color: "#7A7568" } }, "Removed ", entry.deletedAt ? new Date(entry.deletedAt).toLocaleString() : "recently")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: "8px", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("button", { onClick: () => onRestore(entry), style: { ...secondaryBtnStyle, color: "#4B6B4F", borderColor: "#4B6B4F" } }, "Restore"), confirmingId === entry.id ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: () => { onPermanentlyDelete(entry.id); setConfirmingId(null); }, style: { ...secondaryBtnStyle, color: "#8C2F39", borderColor: "#8C2F39" } }, "Confirm"), /* @__PURE__ */ React.createElement("button", { onClick: () => setConfirmingId(null), style: secondaryBtnStyle }, "Cancel")) : /* @__PURE__ */ React.createElement("button", { onClick: () => setConfirmingId(entry.id), style: { ...secondaryBtnStyle, color: "#7A7568" } }, "Delete permanently")))));
   }
   function EmailTemplatesModal({ templates, onSave, onClose, bare }) {
     const [draft, setDraft] = useState(templates && templates.length > 0 ? templates : []);
